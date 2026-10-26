@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.research/
+dist/
+examples/**/submission.csv
+test-output/
+.venv/
+STATUS.md
+
+# Supplied datasets and local credentials stay outside version control
+examples/**/*.csv
+.env.*.local
