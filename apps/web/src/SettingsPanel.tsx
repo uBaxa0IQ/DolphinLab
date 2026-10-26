@@ -28,6 +28,8 @@ export default function SettingsPanel({
   const [key, setKey] = useState("");
   const [configured, setConfigured] = useState(false);
   const [clearKey, setClearKey] = useState(false);
+  const [executionEnabled, setExecutionEnabled] = useState(false);
+  const [pricingText, setPricingText] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -39,6 +41,12 @@ export default function SettingsPanel({
         setBaseUrl(value.base_url);
         setModel(value.model);
         setConfigured(value.key_configured);
+        setExecutionEnabled(value.execution_enabled);
+        setPricingText(
+          value.pricing && Object.keys(value.pricing).length
+            ? JSON.stringify(value.pricing, null, 2)
+            : "",
+        );
         setLoaded(true);
       })
       .catch(() => {
@@ -61,12 +69,14 @@ export default function SettingsPanel({
     setError("");
     setBusy(true);
     try {
+      const pricing = pricingText.trim() ? JSON.parse(pricingText) : undefined;
       const result = await api.saveSettings({
         display_name: name.trim(),
         base_url: baseUrl.trim(),
         model: model.trim(),
         ...(key.trim() ? { api_key: key.trim() } : {}),
         clear_key: clearKey,
+        pricing,
       });
       setKey("");
       saved(result);
@@ -222,9 +232,29 @@ export default function SettingsPanel({
                 Ключ хранится зашифрованным на сервере. Сохранение не вызывает
                 модель.
               </p>
+              <details className="pricing-details">
+                <summary>Тариф и резерв стоимости</summary>
+                <p className="field-help">
+                  Для денежного лимита нужны подтверждённые цены и максимальная
+                  ёмкость запроса. Формат JSON: currency, input_per_million,
+                  output_per_million, max_input_tokens, max_output_tokens. Цены
+                  указаны за миллион токенов. Длина генерации этим не
+                  ограничивается.
+                </p>
+                <textarea
+                  className="pricing-input"
+                  rows={6}
+                  value={pricingText}
+                  onChange={(event) => setPricingText(event.target.value)}
+                  placeholder="Значения из документации твоего провайдера"
+                  spellCheck={false}
+                />
+              </details>
               <div className="settings-execution-note">
                 <span className="tiny-dot" />
-                Исполнение агентов пока отключено
+                {executionEnabled
+                  ? "Исполнение агентов разрешено"
+                  : "Вызовы модели отключены в Docker"}
               </div>
             </div>
           )}

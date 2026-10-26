@@ -149,3 +149,7 @@ class Store:
         """Retain old messages for recall, but do not replay obsolete instructions after reset."""
         self.db.execute("UPDATE mail SET delivered=1 WHERE recipient=?", (recipient,))
         self.db.commit()
+
+    def archives(self):
+        return [{"kind": kind, **json.loads(data)} for kind, data in self.db.execute(
+            "SELECT kind,data FROM events WHERE kind='context_archive' ORDER BY seq")]

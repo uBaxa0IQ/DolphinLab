@@ -1,0 +1,17 @@
+.git
+.venv
+.platform-venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+.env
+.env.*.local
+.workspace-data
+.platform-logs
+test-output
+examples
+dist
+apps/web/dist
+STATUS.md
+**/*.sqlite*
+**/secret.key

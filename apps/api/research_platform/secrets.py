@@ -1,4 +1,5 @@
 """Local secret storage; no plaintext API credentials in the application database."""
+
 from __future__ import annotations
 
 import base64
@@ -15,7 +16,10 @@ def _windows_protect(value: bytes, decrypt=False) -> bytes:
     from ctypes import wintypes
 
     class Blob(ctypes.Structure):
-        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
+        _fields_ = [
+            ("cbData", wintypes.DWORD),
+            ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
+        ]
 
     buffer = ctypes.create_string_buffer(value)
     source = Blob(len(value), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
@@ -23,11 +27,21 @@ def _windows_protect(value: bytes, decrypt=False) -> bytes:
     crypt = ctypes.WinDLL("crypt32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     operation = crypt.CryptUnprotectData if decrypt else crypt.CryptProtectData
-    operation.argtypes = [ctypes.POINTER(Blob), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(Blob)]
+    operation.argtypes = [
+        ctypes.POINTER(Blob),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(Blob),
+    ]
     operation.restype = wintypes.BOOL
     kernel.LocalFree.argtypes = [ctypes.c_void_p]
     kernel.LocalFree.restype = ctypes.c_void_p
-    if not operation(ctypes.byref(source), None, None, None, None, 1, ctypes.byref(target)):
+    if not operation(
+        ctypes.byref(source), None, None, None, None, 1, ctypes.byref(target)
+    ):
         raise ctypes.WinError(ctypes.get_last_error())
     try:
         return ctypes.string_at(target.pbData, target.cbData)
@@ -37,6 +51,11 @@ def _windows_protect(value: bytes, decrypt=False) -> bytes:
 
 def _fernet():
     from cryptography.fernet import Fernet
+
+    if os.getenv("WORKSPACE_ENCRYPTION_KEY"):
+        return Fernet(os.environ["WORKSPACE_ENCRYPTION_KEY"].encode("ascii"))
+    if os.getenv("PLATFORM_ENV") == "docker":
+        raise RuntimeError("WORKSPACE_ENCRYPTION_KEY is required in Docker")
     key_file = DATA_ROOT / "secret.key"
     with _key_lock:
         try:
@@ -51,7 +70,9 @@ def _fernet():
 
 def encrypt_key(value: str) -> str:
     if os.name == "nt":
-        return "dpapi:" + base64.b64encode(_windows_protect(value.encode("utf-8"))).decode("ascii")
+        return "dpapi:" + base64.b64encode(
+            _windows_protect(value.encode("utf-8"))
+        ).decode("ascii")
     return "fernet:" + _fernet().encrypt(value.encode("utf-8")).decode("ascii")
 
 

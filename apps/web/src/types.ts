@@ -11,6 +11,7 @@ export type ProjectPolicy = {
     cpu_total: number;
     ram_gb: number;
     duration_minutes: number;
+    api_budget?: number | null;
   };
 };
 export type WorkspaceSettings = {
@@ -19,6 +20,13 @@ export type WorkspaceSettings = {
   model: string;
   key_configured: boolean;
   execution_enabled: boolean;
+  pricing?: {
+    currency: string;
+    input_per_million: number;
+    output_per_million: number;
+    max_input_tokens: number;
+    max_output_tokens: number;
+  };
 };
 export type Member = {
   name: string;
@@ -43,7 +51,8 @@ export type Experiment = {
   id: string;
   name: string;
   team: string;
-  status: "running" | "verified" | "rejected";
+  status:
+    "running" | "verified" | "rejected" | "succeeded" | "failed" | "cancelled";
   score: string;
   duration: string;
   detail: string;
@@ -68,6 +77,28 @@ export type ChatMessage = {
   time: string;
   directive?: boolean;
   status?: string;
+  error?: string;
+  directive_status?: string;
+  directive_decision?: string;
+};
+export type ResearchRun = {
+  id: string;
+  status: string;
+  elapsed_seconds: number;
+  created: string;
+  updated: string;
+  error?: string | null;
+  policy: ProjectPolicy;
+  usage: {
+    requests?: number;
+    accounted_cost?: number;
+    reserved_cost?: number;
+    currency?: string;
+    unknown_requests?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
+  publication?: { candidate_id: string; sha256: string } | null;
 };
 export type Project = {
   id: string;
@@ -75,10 +106,12 @@ export type Project = {
   description: string;
   status: string;
   demo?: boolean;
+  archived?: boolean;
   metric?: string;
   score?: string;
   teams: Team[];
   experiments: Experiment[];
   events: FeedEvent[];
   files: InputFile[];
+  latest_run?: ResearchRun | null;
 };

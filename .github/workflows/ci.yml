@@ -1,0 +1,57 @@
+name: CI
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [dev, "release/**", "hotfix/**"]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    name: Source and frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - run: python -m compileall -q apps/api apps/executor research_runtime.py research_store.py
+      - run: python scripts/check_tracked_secrets.py
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+  containers:
+    name: Container build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: python scripts/bootstrap_platform.py
+      - run: docker compose --env-file .env.docker.local config --quiet
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - run: docker compose --env-file .env.docker.local build
+  branch-policy:
+    name: Branch policy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Check permitted merge direction
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          if [[ "$BASE" == main && ! "$HEAD" =~ ^(release|hotfix)/ ]]; then
+            echo 'main accepts release/* and hotfix/* pull requests only'; exit 1
+          fi
+          if [[ "$BASE" == dev && ! "$HEAD" =~ ^(feature|fix|chore|release|hotfix|sync)/ ]]; then
+            echo 'Use feature/*, fix/*, chore/* or a release/hotfix synchronization branch'; exit 1
+          fi

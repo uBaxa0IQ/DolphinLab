@@ -32,12 +32,12 @@ def digest(path):
 
 
 class Runtime:
-    def __init__(self, config, client):
+    def __init__(self, config, client, *, store=None, jobs_factory=Jobs, monitor_factory=Monitor):
         self.config, self.client = config, client
         config.work_dir.mkdir(parents=True, exist_ok=True)
         self.lease = RunLease(config.work_dir)
         try:
-            self.store = Store(config.work_dir / "state.sqlite3")
+            self.store = store if store is not None else Store(config.work_dir / "state.sqlite3")
             self.store.on_close = self.lease.close
             self.run_meta = open_run(config, self.store)
             if config.context_window and hasattr(client, "window_source") and client.window_source == "not confirmed":
@@ -55,7 +55,7 @@ class Runtime:
         self.published = None
         self.api_blocked = False
         self.inline_jobs = set()
-        self.jobs = Jobs(config, self.store, self.job_finished)
+        self.jobs = jobs_factory(config, self.store, self.job_finished)
         self.ledger = ResearchLedger(self)
         self.timing = Timing(self)
         self.task_text = config.task_path.read_text(encoding="utf-8")
@@ -81,7 +81,7 @@ class Runtime:
         if hasattr(client, "config"):
             client.log_dir = config.work_dir / "requests"
             client.log_event = self.model_event
-        self.monitor = Monitor(self)
+        self.monitor = monitor_factory(self)
         self.run_meta = checkpoint(config, self.store, self.run_meta,
                                    self.run_meta.get("previous_status", "running") if self.done else "running")
         self.store.event("resumed" if restored else "startup", {"task": str(config.task_path), "model": config.model,
@@ -255,6 +255,9 @@ class Runtime:
         try:
             await self.jobs.recover({a["id"] for a in self.agents.values() if a["state"] != "closed"})
             while self.config.remaining > max(.2, self.config.shutdown_seconds) and not self.done:
+                await self.control_tick()
+                if self.done:
+                    break
                 self.monitor.update()
                 if time.monotonic() - self.last_checkpoint >= 2:
                     self.run_meta = checkpoint(self.config, self.store, self.run_meta, "running")
@@ -284,6 +287,8 @@ class Runtime:
                         self.done = True
                         continue
                 for ident, agent in list(self.agents.items()):
+                    if getattr(self, "scheduling_paused", False):
+                        continue
                     if self.api_blocked or agent["state"] in ("closed", "blocked") or ident in self.turns or now < agent["retry_at"]:
                         continue
                     team_draining = bool(agent["team_id"] and self.store.get("team", agent["team_id"])["state"] == "draining")
@@ -343,41 +348,7 @@ class Runtime:
         self.store.put("agent", agent["id"], agent)
         try:
             tools = tools_for(agent["role"])
-            messages = await prepare_context(agent, self.state(agent), self.client, self.config, self.store, tools)
-            try:
-                message, usage = await self.client.complete(messages, tools)
-            except Exception as error:
-                if not is_context_error(error):
-                    raise
-                await compact(agent, self.client, self.store, facts=self.memory_facts(agent), aggressive=True)
-                message, usage = await self.client.complete(build_context(agent, self.state(agent)), tools)
-            agent["failures"] = 0
-            agent["turn_count"] += 1
-            agent["history"].append(message)
-            self.store.put("agent", agent["id"], agent)
-            self.store.event("model_usage", {"agent": agent["id"], "usage": usage})
-            agent["last_actual_prompt_tokens"] = usage.get("prompt_tokens")
-            calls = message.get("tool_calls", [])
-            agent["wait_requested"] = False
-            for call in calls:
-                receipt_id = f"{agent.get('epoch', 0)}:{call['id']}"
-                cached = self.store.receipt(agent["id"], receipt_id)
-                if cached is None:
-                    try:
-                        agent["activity"] = "инструмент: " + call["function"]["name"]
-                        self.store.event("tool_started", {"agent": agent["id"], "call_id": call["id"],
-                                         "tool": call["function"]["name"], "arguments": normalize_arguments(call["function"]["arguments"])})
-                        result = await self.dispatch(agent, call["function"]["name"],
-                                                     normalize_arguments(call["function"]["arguments"]))
-                    except Exception as error:
-                        result = {"error": f"{type(error).__name__}: {error}"}
-                    self.store.save_receipt(agent["id"], receipt_id, result)
-                    self.store.event("tool_finished", {"agent": agent["id"], "call_id": call["id"],
-                                                       "tool": call["function"]["name"], "result": result})
-                else:
-                    result = cached
-                agent["history"].append({"role": "tool", "tool_call_id": call["id"], "content": dumps(result)})
-                self.store.put("agent", agent["id"], agent)
+            calls = await self.execute_turn(agent, tools)
             if agent.pop("compact_requested", False):
                 try:
                     await compact(agent, self.client, self.store, facts=self.memory_facts(agent))
@@ -431,6 +402,48 @@ class Runtime:
             self.store.put("agent", agent["id"], agent)
             request_actor.reset(actor_token)
             request_effort.reset(effort_token)
+
+    async def control_tick(self):
+        """Platform control hook; the standalone competition runner has no external controller."""
+        return None
+
+    async def execute_turn(self, agent, tools):
+        messages = await prepare_context(agent, self.state(agent), self.client, self.config, self.store, tools)
+        try:
+            message, usage = await self.client.complete(messages, tools)
+        except Exception as error:
+            if not is_context_error(error):
+                raise
+            await compact(agent, self.client, self.store, facts=self.memory_facts(agent), aggressive=True)
+            message, usage = await self.client.complete(build_context(agent, self.state(agent)), tools)
+        agent["failures"] = 0
+        agent["turn_count"] += 1
+        agent["history"].append(message)
+        self.store.put("agent", agent["id"], agent)
+        self.store.event("model_usage", {"agent": agent["id"], "usage": usage})
+        agent["last_actual_prompt_tokens"] = usage.get("prompt_tokens")
+        calls = message.get("tool_calls", [])
+        agent["wait_requested"] = False
+        for call in calls:
+            receipt_id = f"{agent.get('epoch', 0)}:{call['id']}"
+            cached = self.store.receipt(agent["id"], receipt_id)
+            if cached is None:
+                try:
+                    agent["activity"] = "инструмент: " + call["function"]["name"]
+                    self.store.event("tool_started", {"agent": agent["id"], "call_id": call["id"],
+                                     "tool": call["function"]["name"], "arguments": normalize_arguments(call["function"]["arguments"])})
+                    result = await self.dispatch(agent, call["function"]["name"],
+                                                 normalize_arguments(call["function"]["arguments"]))
+                except Exception as error:
+                    result = {"error": f"{type(error).__name__}: {error}"}
+                self.store.save_receipt(agent["id"], receipt_id, result)
+                self.store.event("tool_finished", {"agent": agent["id"], "call_id": call["id"],
+                                                   "tool": call["function"]["name"], "result": result})
+            else:
+                result = cached
+            agent["history"].append({"role": "tool", "tool_call_id": call["id"], "content": dumps(result)})
+            self.store.put("agent", agent["id"], agent)
+        return calls
 
     def complete_interrupted_calls(self, agent):
         pending = {}
@@ -659,8 +672,7 @@ class Runtime:
                 records = self.store.recent_mail(members, offset + limit)
                 return records[max(0, len(records) - offset - limit):len(records) - offset or None]
             if topic == "archives":
-                records = [{"kind": k, **json.loads(data)} for k, data in self.store.db.execute(
-                    "SELECT kind,data FROM events WHERE kind='context_archive' ORDER BY seq")]
+                records = self.store.archives()
                 if agent["role"] != "tech_lead":
                     records = [r for r in records if self.agents.get(r["agent"], {}).get("team_id") == agent["team_id"]]
             elif args.get("record_id"):

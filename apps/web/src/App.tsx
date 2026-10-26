@@ -52,13 +52,16 @@ import type {
 import SettingsPanel from "./SettingsPanel";
 import ProjectsDirectory from "./ProjectsDirectory";
 import ProjectSettingsPanel from "./ProjectSettingsPanel";
+import RunPanel, { statusLabels } from "./RunPanel";
+import ProjectDetailsPanel from "./ProjectDetailsPanel";
 
-type Tab = "overview" | "teams" | "experiments" | "files";
+type Tab = "overview" | "teams" | "experiments" | "files" | "runs";
 const tabs: { id: Tab; label: string }[] = [
   { id: "overview", label: "Обзор" },
   { id: "teams", label: "Команды" },
   { id: "experiments", label: "Эксперименты" },
   { id: "files", label: "Файлы" },
+  { id: "runs", label: "Запуски" },
 ];
 const clock = () =>
   new Date().toLocaleTimeString("ru-RU", {
@@ -410,6 +413,7 @@ export default function App() {
   const [directory, setDirectory] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
   const [settings, setSettings] = useState<WorkspaceSettings>({
     display_name: "Исследователь",
     base_url: "",
@@ -488,26 +492,54 @@ export default function App() {
       .finally(() => {
         if (active) setHistoryLoading(false);
       });
-    const events = new EventSource(`/api/projects/${project.id}/events`);
-    events.addEventListener("update", () => {
-      api
-        .project(project.id)
-        .then((updated) => {
-          if (active)
-            setProjects((before) =>
-              before.map((p) => (p.id === updated.id ? updated : p)),
-            );
-        })
-        .catch(() => {});
-      api
-        .messages(project.id)
-        .then((items) => {
-          if (active) setMessages(items);
-        })
-        .catch(() => {});
+    const cursor = Math.max(
+      0,
+      ...project.events.map((event) => Number(event.id) || 0),
+    );
+    const events = new EventSource(
+      `/api/projects/${project.id}/events?after=${cursor}`,
+    );
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    events.addEventListener("update", (event) => {
+      try {
+        const item = JSON.parse((event as MessageEvent).data);
+        if (item.kind === "run_state")
+          setNotice(
+            `Исследование: ${statusLabels[item.data.name] || item.data.name}`,
+          );
+        if (item.kind === "run_error")
+          setNotice("В исследовании возникла ошибка. Открой историю запуска.");
+      } catch {
+        /* Invalid notifications do not discard authoritative project state. */
+      }
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        api
+          .project(project.id)
+          .then((updated) => {
+            if (active)
+              setProjects((before) =>
+                before.map((p) => (p.id === updated.id ? updated : p)),
+              );
+          })
+          .catch(() => {});
+        api
+          .messages(project.id)
+          .then((items) => {
+            if (active)
+              setMessages((before) =>
+                JSON.stringify(before) === JSON.stringify(items)
+                  ? before
+                  : items,
+              );
+          })
+          .catch(() => {});
+      }, 150);
     });
     return () => {
       active = false;
+      clearTimeout(refreshTimer);
       events.close();
     };
   }, [project.id, project.demo, demoChats]);
@@ -699,17 +731,19 @@ export default function App() {
           </button>
         </div>
         <nav className="project-nav" aria-label="Проекты">
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              className={`project-nav-item ${!directory && project.id === p.id ? "active" : ""}`}
-              onClick={() => select(p.id)}
-            >
-              <span className={`nav-project-dot ${p.status}`} />
-              <span>{p.name}</span>
-              {p.demo && <span className="nav-demo">Демо</span>}
-            </button>
-          ))}
+          {projects
+            .filter((p) => !p.archived)
+            .map((p) => (
+              <button
+                key={p.id}
+                className={`project-nav-item ${!directory && project.id === p.id ? "active" : ""}`}
+                onClick={() => select(p.id)}
+              >
+                <span className={`nav-project-dot ${p.status}`} />
+                <span>{p.name}</span>
+                {p.demo && <span className="nav-demo">Демо</span>}
+              </button>
+            ))}
         </nav>
         <button
           className="new-project-button"
@@ -822,6 +856,14 @@ export default function App() {
                 </div>
                 <div className="project-heading-actions">
                   <button
+                    className="icon-button project-details-button"
+                    title="Задача и управление проектом"
+                    aria-label="Задача и управление проектом"
+                    onClick={() => setProjectDetailsOpen(true)}
+                  >
+                    <MoreHorizontal size={17} />
+                  </button>
+                  <button
                     className="project-settings-button"
                     onClick={() => setProjectSettingsOpen(true)}
                     title="Настройки проекта"
@@ -839,11 +881,7 @@ export default function App() {
                     }
                   >
                     <span className={`tiny-dot ${project.status}`} />
-                    {project.status === "running"
-                      ? "В работе"
-                      : project.status === "completed"
-                        ? "Завершён"
-                        : "Черновик"}
+                    {statusLabels[project.status] || project.status}
                   </Badge>
                 </div>
               </div>
@@ -896,6 +934,26 @@ export default function App() {
                 </section>
               )}
 
+              {(tab === "overview" || tab === "runs") && (
+                <RunPanel
+                  project={project}
+                  enabled={settings.execution_enabled}
+                  history={tab === "runs"}
+                  openHistory={() => setTab("runs")}
+                  changed={() => {
+                    api
+                      .project(project.id)
+                      .then((updated) =>
+                        setProjects((before) =>
+                          before.map((item) =>
+                            item.id === updated.id ? updated : item,
+                          ),
+                        ),
+                      )
+                      .catch((error) => setNotice(error.message));
+                  }}
+                />
+              )}
               {(tab === "overview" || tab === "teams") && (
                 <>
                   {tab === "overview" && (
@@ -907,11 +965,15 @@ export default function App() {
                           </span>
                           Лучший результат
                           <span className="metric-label">
-                            {project.metric || "Метрика не выбрана"}
+                            {project.metric ||
+                              (project.latest_run?.publication
+                                ? "Артефакт"
+                                : "Метрика не выбрана")}
                           </span>
                         </div>
                         <div className="result-value">
-                          {project.score || "—"}
+                          {project.score ||
+                            (project.latest_run?.publication ? "Готов" : "—")}
                           {project.score && project.id === "demo-retention" && (
                             <span>
                               <ArrowUpRight size={13} />
@@ -921,7 +983,7 @@ export default function App() {
                         </div>
                         <div className="result-bottom">
                           <span>
-                            {project.score
+                            {project.score || project.latest_run?.publication
                               ? "Независимая проверка пройдена"
                               : "Появится после первого эксперимента"}
                           </span>
@@ -934,12 +996,21 @@ export default function App() {
                               <ArrowDownToLine size={15} />
                             </button>
                           )}
+                          {!project.demo && project.latest_run?.publication && (
+                            <a
+                              title="Скачать проверенный submission.csv"
+                              aria-label="Скачать проверенный submission.csv"
+                              href={`/api/projects/${project.id}/runs/${project.latest_run.id}/artifact?path=${encodeURIComponent("task/submission.csv")}`}
+                            >
+                              <ArrowDownToLine size={15} />
+                            </a>
+                          )}
                         </div>
-                        <div className="mini-chart" aria-hidden="true">
+                        {project.demo && <div className="mini-chart" aria-hidden="true">
                           <svg viewBox="0 0 140 60">
                             <path d="M0 55L20 49L38 51L57 35L76 38L94 18L112 21L140 2" />
                           </svg>
-                        </div>
+                        </div>}
                       </section>
                       <section className="summary-card">
                         <span className="summary-label">
@@ -1030,7 +1101,7 @@ export default function App() {
                         <p>
                           {project.demo
                             ? "Открой «Отток клиентов», чтобы посмотреть активное исследование."
-                            : "Проект сохранён. Загрузка данных и история чата уже доступны; исполнение агентов подключается следующим этапом."}
+                            : "Добавь задачу и данные, настрой исследование и начни запуск. Техлид соберёт команды под выбранные направления."}
                         </p>
                         {!project.demo && (
                           <button
@@ -1195,7 +1266,9 @@ export default function App() {
                 <span className="footer-spark">✳</span>{" "}
                 {project.demo
                   ? "Демонстрационный проект · все результаты вымышлены"
-                  : "Локальный проект · модель не вызывается"}
+                  : settings.execution_enabled
+                    ? "Личное исследовательское пространство"
+                    : "Вызовы модели отключены"}
               </footer>
             </>
           )}
@@ -1286,7 +1359,36 @@ export default function App() {
               )}
               {message.status === "pending" && (
                 <div className="pending-message">
-                  Сохранено · ожидает подключения PM
+                  {settings.execution_enabled
+                    ? "Сохранено · ожидает ответа PM"
+                    : "Сохранено · вызовы модели отключены"}
+                </div>
+              )}
+              {message.status === "processing" && (
+                <div className="pending-message">PM готовит ответ…</div>
+              )}
+              {message.status === "failed" && (
+                <div className="failed-message">
+                  <span>{message.error || "Не удалось получить ответ PM"}</span>
+                  <button
+                    onClick={() => {
+                      api
+                        .retry(project.id, message.id)
+                        .then(() => api.messages(project.id))
+                        .then(setMessages)
+                        .catch((error) => setChatError(error.message));
+                    }}
+                  >
+                    Повторить
+                  </button>
+                </div>
+              )}
+              {message.directive_status && (
+                <div className="pending-message">
+                  Поручение: {message.directive_status}
+                  {message.directive_decision
+                    ? ` · ${message.directive_decision}`
+                    : ""}
                 </div>
               )}
             </div>
@@ -1400,11 +1502,46 @@ export default function App() {
           <div className="chat-footnote">
             {project.demo
               ? "Деморежим · без вызовов модели"
-              : "Сообщения сохраняются · исполнение PM не подключено"}
+              : settings.execution_enabled
+                ? "PM общается с техлидом · история сохраняется"
+                : "Сообщения сохраняются · вызовы модели отключены"}
           </div>
         </div>
       </aside>
 
+      {projectDetailsOpen && (
+        <Modal
+          close={() => setProjectDetailsOpen(false)}
+          label="Управление проектом"
+        >
+          <ProjectDetailsPanel
+            project={project}
+            close={() => setProjectDetailsOpen(false)}
+            saved={(updated) => {
+              setProjects((before) =>
+                before.map((p) => (p.id === updated.id ? updated : p)),
+              );
+              setProjectDetailsOpen(false);
+              setNotice(
+                updated.archived ? "Проект в архиве" : "Проект обновлён",
+              );
+            }}
+            deleted={(removed) => {
+              setProjects((before) =>
+                before.filter((p) => p.id !== project.id),
+              );
+              setSelectedId(demoProjects[0].id);
+              setDirectory(true);
+              setProjectDetailsOpen(false);
+              setNotice(
+                removed
+                  ? "Проект удалён"
+                  : "Записи удалены. Часть файлов не удалось убрать; проверь хранилище.",
+              );
+            }}
+          />
+        </Modal>
+      )}
       {projectSettingsOpen && (
         <Modal
           close={() => setProjectSettingsOpen(false)}
@@ -1543,7 +1680,13 @@ export default function App() {
                 ? "Проверен"
                 : experiment.status === "running"
                   ? "Выполняется"
-                  : "Без улучшения"}
+                  : experiment.status === "succeeded"
+                    ? "Код выполнен"
+                    : experiment.status === "failed"
+                      ? "Ошибка кода"
+                      : experiment.status === "cancelled"
+                        ? "Отменён"
+                        : "Без улучшения"}
             </Badge>
           </div>
           <p className="detail-copy">{experiment.detail}</p>

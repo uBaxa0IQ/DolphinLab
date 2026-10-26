@@ -47,7 +47,7 @@ const modes = [
   },
 ];
 const fields: {
-  key: keyof ProjectPolicy["limits"];
+  key: Exclude<keyof ProjectPolicy["limits"], "api_budget">;
   label: string;
   hint: string;
   min: number;
@@ -331,6 +331,35 @@ export default function ProjectSettingsPanel({
                   </span>
                 </label>
               ))}
+              <label className="policy-limit-row">
+                <span>
+                  <strong>Лимит API</strong>
+                  <small>В валюте тарифа. Пусто — без денежного лимита.</small>
+                </span>
+                <span className="policy-number">
+                  <input
+                    type="number"
+                    min={0.01}
+                    step="any"
+                    aria-label="Лимит API"
+                    placeholder="—"
+                    value={policy.limits.api_budget ?? ""}
+                    onChange={(event) =>
+                      setPolicy((before) => ({
+                        ...before,
+                        limits: {
+                          ...before.limits,
+                          api_budget:
+                            event.target.value === ""
+                              ? null
+                              : Number(event.target.value),
+                        },
+                      }))
+                    }
+                  />
+                  <span>API</span>
+                </span>
+              </label>
             </div>
           </div>
           <div className="policy-effective">

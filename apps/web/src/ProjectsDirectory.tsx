@@ -9,6 +9,7 @@ import {
   Users,
 } from "lucide-react";
 import type { Project } from "./types";
+import { statusLabels } from "./RunPanel";
 
 export default function ProjectsDirectory({
   projects,
@@ -21,11 +22,16 @@ export default function ProjectsDirectory({
   create: () => void;
   name: string;
 }) {
-  const [filter, setFilter] = useState<"all" | "personal" | "demo">("all");
+  const [filter, setFilter] = useState<"all" | "personal" | "demo" | "archive">(
+    "all",
+  );
   const [query, setQuery] = useState("");
   const visible = projects.filter(
     (p) =>
-      (filter === "all" || (filter === "demo" ? p.demo : !p.demo)) &&
+      (filter === "archive"
+        ? p.archived
+        : !p.archived &&
+          (filter === "all" || (filter === "demo" ? p.demo : !p.demo))) &&
       p.name.toLowerCase().includes(query.toLowerCase()),
   );
   return (
@@ -71,6 +77,14 @@ export default function ProjectsDirectory({
           >
             Демо
           </button>
+          <button
+            role="tab"
+            aria-selected={filter === "archive"}
+            className={filter === "archive" ? "active" : ""}
+            onClick={() => setFilter("archive")}
+          >
+            Архив
+          </button>
         </div>
         <label className="directory-search">
           <Search size={14} />
@@ -97,11 +111,9 @@ export default function ProjectsDirectory({
                 className={`badge ${project.status === "running" ? "green" : project.status === "draft" ? "amber" : "neutral"}`}
               >
                 <span className={`tiny-dot ${project.status}`} />
-                {project.status === "running"
-                  ? "В работе"
-                  : project.status === "completed"
-                    ? "Завершён"
-                    : "Черновик"}
+                {project.archived
+                  ? "В архиве"
+                  : statusLabels[project.status] || project.status}
               </span>
             </div>
             <h2>

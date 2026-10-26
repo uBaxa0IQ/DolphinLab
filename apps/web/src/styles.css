@@ -2947,6 +2947,253 @@ h1 {
     font-size: 9px;
   }
 }
+.run-panel {
+  margin: 0 0 24px;
+}
+.run-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #e5dfd1;
+  border-radius: 8px;
+  background: #f4f3ec;
+}
+.run-toolbar-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.run-toolbar-state strong {
+  font-size: 10px;
+  font-weight: 500;
+  color: #95866b;
+}
+.run-toolbar-state > span:last-child:not(.tiny-dot) {
+  font-size: 8px;
+  color: #b2a286;
+}
+.run-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.run-stop {
+  display: grid;
+  place-items: center;
+  border: 1px solid #e6d8cc;
+  border-radius: 5px;
+  width: 26px;
+  height: 26px;
+  color: #b0917d;
+}
+.run-stop:hover {
+  background: #f1e5dd;
+}
+.run-offline {
+  font-size: 9px;
+  color: #b1a185;
+  margin-top: 9px;
+  line-height: 1.8;
+}
+.run-usage {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+  font-size: 9px;
+  color: #ab9a7b;
+  padding: 12px 0 0;
+}
+.run-history {
+  margin-top: 25px;
+}
+.run-history-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px 0;
+  border-top: 1px solid #e7dfd1;
+}
+.run-id {
+  font-family: monospace;
+  font-size: 10px;
+  color: #aca082;
+}
+.run-history-row > div {
+  flex: 1;
+}
+.run-history-row strong {
+  font-size: 11px;
+  color: #928368;
+  display: block;
+  font-weight: 500;
+}
+.run-history-row small {
+  display: block;
+  font-size: 9px;
+  margin-top: 5px;
+  color: #b6a68b;
+}
+.run-history-row > span:not(.run-id) {
+  font-size: 9px;
+  color: #b4a186;
+}
+.artifact-caption {
+  font-size: 11px;
+  margin: 12px 0 18px;
+}
+.artifact-download {
+  margin-bottom: 20px;
+}
+.artifact-list {
+  max-height: 50vh;
+  overflow: auto;
+}
+.artifact-list > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid #e8e0d2;
+  color: #ac9b7d;
+  font-size: 10px;
+}
+.artifact-list > a > span {
+  flex: 1;
+  word-break: break-all;
+}
+.artifact-list small {
+  font-size: 8px;
+  color: #bfad8f;
+  white-space: nowrap;
+}
+.artifact-list > a:hover {
+  color: #7b8b65;
+}
+.failed-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 9px;
+  color: #b17d64;
+  margin-top: 9px;
+}
+.failed-message > span {
+  flex: 1;
+}
+.failed-message button {
+  font-size: 9px;
+  text-decoration: underline;
+  padding: 0;
+  color: #968363;
+}
+.pricing-details {
+  margin-top: 20px;
+  color: #ac9a7c;
+}
+.pricing-details > summary {
+  font-size: 10px;
+  cursor: pointer;
+}
+.pricing-input {
+  display: block;
+  width: 100%;
+  border: 1px solid #e4d9c5;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #94815e;
+  background: #fffdf6;
+  margin-top: 12px;
+  padding: 10px;
+  resize: vertical;
+}
+.tiny-dot.paused,
+.tiny-dot.pausing {
+  background: #c7ad75;
+}
+.tiny-dot.failed {
+  background: #c3917d;
+}
+.tiny-dot.finalizing {
+  background: #99a185;
+}
+@media (max-width: 700px) {
+  .run-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 11px;
+  }
+  .run-toolbar-actions {
+    width: 100%;
+  }
+  .run-toolbar-actions > .icon-button {
+    margin-left: auto;
+  }
+  .run-history-row {
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .run-history-row > .button {
+    font-size: 8px;
+    padding: 7px;
+  }
+  .run-id {
+    font-size: 8px;
+  }
+  .run-usage {
+    gap: 10px;
+    font-size: 8px;
+  }
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+.result-bottom > a {
+  padding: 1px 3px;
+  line-height: 1;
+  color: #8c9c7b;
+}
+.result-bottom > a:hover {
+  color: #4f663d;
+}
+.project-heading-actions {
+  position: relative;
+  padding-right: 28px;
+}
+.project-details-button {
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+.project-management {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22px;
+  border-top: 1px solid #e6ddcc;
+  padding-top: 17px;
+  gap: 10px;
+}
+.project-management > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #a2967c;
+  padding: 0;
+}
+.project-management > .delete-project {
+  color: #b08b77;
+}
+.project-management > button:hover {
+  color: #6d795b;
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,

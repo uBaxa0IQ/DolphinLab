@@ -3,6 +3,7 @@
 The worker supplies a durable checkpointer, a context builder, a model adapter and
 a tool dispatcher with persistent receipts. No network clients are created here.
 """
+
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, TypedDict
@@ -20,6 +21,7 @@ class AgentState(TypedDict, total=False):
     summary: str
     waiting: bool
     project_policy: dict[str, Any]
+    source_message_id: str
 
 
 ContextBuilder = Callable[[AgentState], Awaitable[list[dict]]]
@@ -27,9 +29,18 @@ ModelCall = Callable[[AgentState], Awaitable[dict]]
 ToolDispatcher = Callable[[str, dict], Awaitable[dict]]
 
 
-def build_agent_graph(*, checkpointer, prepare: ContextBuilder, complete: ModelCall, dispatch: ToolDispatcher):
+def build_agent_graph(
+    *,
+    checkpointer,
+    prepare: ContextBuilder,
+    complete: ModelCall,
+    dispatch: ToolDispatcher,
+    one_turn=False,
+):
     if checkpointer is None:
-        raise ValueError("An explicit durable checkpointer is required for worker sessions")
+        raise ValueError(
+            "An explicit durable checkpointer is required for worker sessions"
+        )
 
     async def context(state: AgentState):
         messages = await prepare(state)
@@ -50,14 +61,21 @@ def build_agent_graph(*, checkpointer, prepare: ContextBuilder, complete: ModelC
             # Unknown in-flight effects must be reconciled rather than replayed.
             result = await dispatch(state["agent_id"], call)
             import json
-            history.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps(result, ensure_ascii=False)})
+
+            history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "content": json.dumps(result, ensure_ascii=False),
+                }
+            )
         return {"history": history}
 
     def next_node(state: AgentState):
         return "tools" if state["response"].get("tool_calls") else END
 
     def after_tools(state: AgentState):
-        return END if state.get("waiting") else "context"
+        return END if one_turn or state.get("waiting") else "context"
 
     graph = StateGraph(AgentState)
     graph.add_node("context", context)
