@@ -54,6 +54,8 @@ def failure_kind(error):
         return Failure("configuration", False, True)
     status = getattr(error, "status_code", None)
     text = str(error).lower()
+    if status == 404 and any(s in text for s in ("no endpoints found", "no available endpoints")):
+        return Failure("temporary_routing", True, True)
     if status in (401, 402, 403, 404) or any(s in text for s in (
             "insufficient_quota", "budget exceeded", "budget has been exceeded", "invalid api key", "model_not_found")):
         return Failure("credentials_or_budget", False, True)

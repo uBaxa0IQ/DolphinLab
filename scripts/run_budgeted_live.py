@@ -61,6 +61,10 @@ class BudgetedClient(ModelClient):
             except ResponseProblem as error:
                 usage = error.usage
                 raise
+            except Exception as error:
+                if getattr(error, "status_code", None) == 404 and "no endpoints found" in str(error).lower():
+                    usage = {"cost": 0, "cost_source": "routing rejected before model execution"}
+                raise
             finally:
                 # Unknown interrupted requests consume their complete reservation conservatively.
                 cost = usage.get("cost") if usage else None

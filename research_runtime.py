@@ -601,7 +601,7 @@ class Runtime:
                 finally:
                     self.inline_jobs.discard(job["id"])
             current = self.store.get("job", job["id"])
-            return {"job_id": job["id"], "folder": job["folder"], "state": current["state"], "script": job["script"],
+            return {"job_id": job["id"], "folder": job["folder"], "state": current["state"], "script": job["script"], "source_path": job["source_path"],
                     "stdout_path": str(Path(job["folder"]) / "stdout.log"), "stderr_path": str(Path(job["folder"]) / "stderr.log"),
                     "completion_wakes_owner": True, "next_action": "Continue other useful work or wait() for completion; avoid polling."}
         if name == "memory":
@@ -766,12 +766,18 @@ class Runtime:
                     "allocation_deadline_wall": time.time() + min(self.config.remaining, max(0., float(args.get("budget_seconds", self.config.remaining)))),
                     "time_plan": {}, "time_alerts": {},
                     "resources": args.get("resources", {})}
-            leader = self.new_agent("team_lead", ident, self.root["id"], args["goal"])
+            first_delivery = not self.published and not any(t.get("purpose") == "delivery" and t["state"] in ("active", "draining") for t in self.store.all("team"))
+            team["purpose"] = args.get("purpose", "delivery" if first_delivery else "research")
+            milestone = ("CURRENT FIRST MILESTONE: deliver one modest genuine fit/assessment/inference artifact before any sweep or extensive CV. "
+                         "One configuration and the simplest honest task-compatible assessment, then register and independently review. "
+                         "Research the broader charter after that checkpoint. " if team["purpose"] == "delivery" else
+                         "Investigate this independent research question using shared data/evaluation evidence; avoid duplicating the delivery team's pipeline. ")
+            leader = self.new_agent("team_lead", ident, self.root["id"], milestone + args["goal"])
             evaluator = self.new_agent("evaluator", ident, leader["id"],
                                        "You are this team's evaluator. Familiarize yourself with the task, "
                                        "coordinate evaluation with the lead, then wait for concrete candidates.")
             ml = self.new_agent("ml_engineer", ident, leader["id"],
-                                "Own the first simple real end-to-end candidate, then improvements within this charter: " + args["goal"]
+                                milestone + "You own implementation and candidate registration within this charter: " + args["goal"]
                                 + ". Coordinate with the lead, data engineer and evaluator; do not wait for exhaustive profiling before a safe baseline.")
             data = self.new_agent("data_engineer", ident, leader["id"],
                                   "Investigate schema, fit/transform boundaries and useful data opportunities for: " + args["goal"]
@@ -847,7 +853,7 @@ class Runtime:
             raise ValueError("Only tech lead reassigns or closes teams")
         if action == "reassign":
             team.update(direction=args["direction"], goal=args["goal"], revision=team["revision"] + 1)
-            for key in ("resources", "scope", "out_of_scope", "deliverables"):
+            for key in ("resources", "scope", "out_of_scope", "deliverables", "purpose"):
                 if key in args:
                     team[key] = args[key]
             if "scope" not in args:

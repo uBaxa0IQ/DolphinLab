@@ -63,7 +63,7 @@ class Jobs:
         fingerprint.update(dumps({"args": args, "protocol_id": (metadata or {}).get("protocol_id")}).encode())
         job = {"id": ident, "token": uid("worker"), "owner": owner, "state": "queued", "kind": kind,
                "cpus": cpus, "ram_mb": ram_mb, "timeout": min(max(.1, timeout), self.config.remaining),
-               "script": str(command), "args": [str(a) for a in args], "folder": str(folder),
+               "script": str(command), "source_path": str(script), "args": [str(a) for a in args], "folder": str(folder),
                "metadata": metadata or {}, "submitted": time.time(), "source_fingerprint": fingerprint.hexdigest()}
         self.store.put("job", ident, job)
         self.store.event("job_queued", job)

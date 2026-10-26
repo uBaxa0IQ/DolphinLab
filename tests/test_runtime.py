@@ -547,6 +547,13 @@ asyncio.run(main())
         self.assertTrue(failure_kind(TimeoutError()).retryable)
         self.assertTrue(failure_kind(ResponseProblem("incomplete", "truncated reasoning")).retryable)
         self.assertFalse(failure_kind(Error("Budget has been exceeded")).retryable)
+        route = Error("No endpoints found matching your provider preferences")
+        route.status_code = 404
+        self.assertTrue(failure_kind(route).retryable)
+        self.assertTrue(failure_kind(route).shared)
+        missing_model = Error("model_not_found")
+        missing_model.status_code = 404
+        self.assertFalse(failure_kind(missing_model).retryable)
 
     async def test_short_python_result_is_inline_without_duplicate_completion_mail(self):
         team = await self.create_team()
@@ -558,6 +565,8 @@ asyncio.run(main())
         self.assertEqual(result["state"], "succeeded")
         self.assertIn("direct observation", result["stdout_tail"])
         self.assertTrue(Path(result["script"]).is_file())
+        self.assertTrue(Path(result["source_path"]).is_relative_to(ml["workspace"]))
+        self.assertNotEqual(result["source_path"], result["script"])
         self.assertFalse(self.runtime.store.pending(ml["id"]))
 
     async def test_inline_observation_timeout_does_not_cancel_execution(self):
