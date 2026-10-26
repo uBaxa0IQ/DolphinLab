@@ -1,0 +1,27 @@
+{
+  "archive": "D:\\ML-Intelligence-new\\dist\\submission-v2.zip",
+  "bytes": 62862,
+  "sha256": "d02509e636c42a43ee22b1156014f821da50c355d8a594e6a814d3fcc4a4d70e",
+  "files": [
+    "solution.py",
+    "requirements.txt",
+    "research_config.py",
+    "research_context.py",
+    "research_jobs.py",
+    "research_ledger.py",
+    "research_llm.py",
+    "research_monitor.py",
+    "research_recovery.py",
+    "research_roles.py",
+    "research_runtime.py",
+    "research_stack.py",
+    "research_store.py",
+    "research_timing.py",
+    "research_tools.py",
+    "research_worker.py"
+  ],
+  "flat": true,
+  "syntax": true,
+  "extracted_entrypoint_help": true,
+  "paid_calls": 0
+}
