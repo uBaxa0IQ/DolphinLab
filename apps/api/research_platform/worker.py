@@ -342,33 +342,6 @@ class Worker:
         }
         try:
             previous = await graph.aget_state(graph_config)
-            history = (
-                list(previous.values.get("history", [])) if previous.values else []
-            )
-            summary = previous.values.get("summary", "") if previous.values else ""
-            if len(json.dumps(history).encode()) > 128000:
-                exchanges = blocks(history)
-                older = exchanges[:-3]
-                if older:
-                    source = json.dumps(
-                        {"summary": summary, "history": older}, ensure_ascii=False
-                    )
-                    condensed, _ = await summarize(client, source)
-                    if len(condensed) < len(source):
-                        summary = condensed
-                        history = [item for group in exchanges[-3:] for item in group]
-            # Recover an incomplete tool exchange conservatively; directive effects are idempotent by message_id.
-            pending = {
-                c["id"] for item in history for c in item.get("tool_calls", [])
-            } - {item.get("tool_call_id") for item in history if item["role"] == "tool"}
-            history.extend(
-                {
-                    "role": "tool",
-                    "tool_call_id": ident,
-                    "content": '{"interrupted":true,"instruction":"Reconcile directive state with project_status before another action"}',
-                }
-                for ident in pending
-            )
             if (
                 previous.values.get("source_message_id") == source_id
                 and not previous.next
@@ -376,6 +349,39 @@ class Worker:
             ):
                 result = previous.values
             else:
+                history = (
+                    list(previous.values.get("history", [])) if previous.values else []
+                )
+                summary = previous.values.get("summary", "") if previous.values else ""
+                # Recover an incomplete tool exchange conservatively; directive effects are idempotent by message_id.
+                pending = {
+                    c["id"] for item in history for c in item.get("tool_calls", [])
+                } - {
+                    item.get("tool_call_id")
+                    for item in history
+                    if item["role"] == "tool"
+                }
+                history.extend(
+                    {
+                        "role": "tool",
+                        "tool_call_id": ident,
+                        "content": '{"interrupted":true,"instruction":"Reconcile directive state with project_status before another action"}',
+                    }
+                    for ident in pending
+                )
+                if len(json.dumps(history).encode()) > 128000:
+                    exchanges = blocks(history)
+                    older = exchanges[:-3]
+                    if older:
+                        source = json.dumps(
+                            {"summary": summary, "history": older}, ensure_ascii=False
+                        )
+                        condensed, _ = await summarize(client, source)
+                        if len(condensed) < len(source):
+                            summary = condensed
+                            history = [
+                                item for group in exchanges[-3:] for item in group
+                            ]
                 result = await graph.ainvoke(
                     {
                         "agent_id": "pm",
