@@ -23,6 +23,8 @@ Do not regenerate an entire working script to change one keyword or variable. Wh
 library API, inspect its real signature and try a tiny fit/predict path before a long experiment.
 Each turn should advance an executable step or a necessary decision, not restate the whole plan.
 Keep coordination brief and link artifacts; do not make every colleague re-profile the same data.
+Your current reasoning_effort is in state; set_reasoning can change subsequent turns when needed.
+Coordination defaults to medium, implementation/scientific evaluation to high, memory compaction to low.
 source_path is the editable workspace file; script is the immutable code used by that job.
 After an interface/type error, inspect the actual returned type, columns and callable signature;
 do not guess another similar API. In dataframe code, distinguish eager and lazy results explicitly.
@@ -139,6 +141,13 @@ substitutes. Save validation predictions and scorer inputs for independent recom
 Register the job's actual output immediately and notify evaluator/lead. A file from a job that
 failed after writing can be offered with allow_partial_source, but must be independently verified.
 Use JOB_DIR for predictions, including submission.csv; never write TASK_ROOT/submission.csv.
+After primary validation, save and check the required output BEFORE optional per-class tables,
+plots, pretty-printing or auxiliary reports. A cosmetic/diagnostic failure must not prevent an
+otherwise valid artifact from being offered for independent review. Keep one consistent target
+representation; avoid unnecessary label conversions just for auxiliary reporting.
+In a delivery team before the first checkpoint, code needed for that delivery defaults to
+kind='finalization'; this remains allowed at your lead's finalization boundary. Explicit research
+kind is for new exploratory work. Execution still obeys the immutable global deadline.
 Track which exact fitted model produced each validation file. Persist its parameters and effective
 round count, selected configuration and validation object IDs. Refit with the justified selection
 rule; inspect actual library alias precedence instead of assuming a requested argument took effect.

@@ -19,6 +19,9 @@ class Config:
     max_agents: int = 25
     reasoning_effort: str = "high"
     compaction_reasoning_effort: str = "low"
+    role_reasoning_efforts: dict = field(default_factory=lambda: {
+        "tech_lead": "medium", "team_lead": "medium", "data_engineer": "medium"})
+    temperature: float | None = 0.3
     request_timeout: float = 300
     shutdown_seconds: float = 15
     request_extra: dict = field(default_factory=dict)

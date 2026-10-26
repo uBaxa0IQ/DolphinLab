@@ -12,7 +12,7 @@ from pathlib import Path
 
 from research_context import build_context, compact, is_context_error, prepare_context, archive_context, refresh_context_status
 from research_jobs import Jobs, TERMINAL
-from research_llm import normalize_arguments, failure_kind, backoff, ResponseProblem, request_actor
+from research_llm import normalize_arguments, failure_kind, backoff, ResponseProblem, request_actor, request_effort
 from research_roles import ROLES, SPECIALISTS, MANAGERS
 from research_recovery import RunLease, open_run, checkpoint
 from research_ledger import ResearchLedger
@@ -128,6 +128,7 @@ class Runtime:
         workspace = self.config.work_dir / "teams" / (team_id or "lead") / ident
         workspace.mkdir(parents=True)
         agent = {"id": ident, "role": role, "team_id": team_id, "supervisor": supervisor,
+                 "reasoning_effort": self.config.role_reasoning_efforts.get(role, self.config.reasoning_effort),
                  "workspace": str(workspace), "history": [], "summary": "", "note": "",
                  "focus": assignment, "focus_revision": 1, "epoch": 0, "turn_count": 0,
                  "state": "ready", "wake_at": 0., "retry_at": 0., "failures": 0}
@@ -213,6 +214,8 @@ class Runtime:
         jobs = self.store.all("job")
         return {**self.config.public(), "agent_id": agent["id"], "role": agent["role"],
                 "supervisor": agent["supervisor"], "workspace": agent["workspace"],
+                "reasoning_effort": agent.get("reasoning_effort", self.config.role_reasoning_efforts.get(agent["role"], self.config.reasoning_effort)),
+                "api_budget": self.store.all("budget"),
                 "task_path": str(self.config.task_path), "task_root": str(self.config.task_path.parent),
                 "original_task": self.task_text, "allowed_stack": STACK,
                 "team": {k: team[k] for k in ("id", "revision", "state")} if team else None,
@@ -334,6 +337,7 @@ class Runtime:
 
     async def turn(self, agent):
         actor_token = request_actor.set(agent["id"])
+        effort_token = request_effort.set(agent.get("reasoning_effort", self.config.role_reasoning_efforts.get(agent["role"], self.config.reasoning_effort)))
         self.store.take_mail(agent)
         agent["state"] = "running"
         self.store.put("agent", agent["id"], agent)
@@ -410,6 +414,10 @@ class Runtime:
                 path.write_text(dumps({"raw": error.raw, "category": error.category}), encoding="utf-8")
                 self.store.event("model_usage", {"agent": agent["id"], "purpose": "rejected response", "usage": error.usage})
                 self.notify(agent["id"], detail + f" Full rejected response is at {path}. No tool calls from it ran.")
+            elif failure.category == "transport":
+                self.notify(agent["id"], "The model request failed before a complete response. No tool calls from that response ran. "
+                            "For a timeout, make the next action smaller (write/append a short module or one decision) instead of repeating a large generation. "
+                            f"Request timeout is {self.config.request_timeout}s; the global deadline is unchanged. Error: " + (detail or type(error).__name__))
             if not failure.retryable and failure.shared:
                 self.api_blocked = True
                 print("Model API stopped: " + detail, flush=True)
@@ -422,6 +430,7 @@ class Runtime:
             refresh_context_status(agent, self.state(agent), self.client, tools_for(agent["role"]))
             self.store.put("agent", agent["id"], agent)
             request_actor.reset(actor_token)
+            request_effort.reset(effort_token)
 
     def complete_interrupted_calls(self, agent):
         pending = {}
@@ -470,8 +479,33 @@ class Runtime:
         return record
 
     async def _dispatch_backend(self, agent, name, args):
+        if name == "set_reasoning":
+            if args["effort"] not in ("low", "medium", "high"):
+                raise ValueError("Choose low, medium or high")
+            agent["reasoning_effort"] = args["effort"]
+            self.store.put("agent", agent["id"], agent)
+            self.store.event("reasoning_changed", {"agent": agent["id"], **args})
+            return {"next_turn_effort": args["effort"], "reason": args["reason"]}
         if name == "send_message":
+            recipient = args["to"]
+            if recipient not in self.agents:
+                teams = {t["id"]: t for t in self.store.all("team")}
+                if recipient in teams:
+                    recipient = teams[recipient]["lead"]
+                elif recipient == "supervisor" and agent.get("supervisor"):
+                    recipient = agent["supervisor"]
+                elif recipient in ROLES:
+                    matches = [a["id"] for a in self.agents.values() if a["role"] == recipient and a["state"] != "closed"
+                               and (recipient == "tech_lead" or agent["team_id"] is None or a["team_id"] == agent["team_id"])]
+                    if len(matches) != 1:
+                        raise ValueError("Recipient role is ambiguous/unavailable; use an agent ID from " + dumps(matches))
+                    recipient = matches[0]
+                else:
+                    raise ValueError("Unknown recipient; use an agent ID, team ID (routes to its lead), supervisor, or a unique role")
+            args = {**args, "to": recipient}
             target = self.agents[args["to"]]
+            if target["state"] == "closed":
+                raise ValueError("Recipient is closed; choose an active team/agent")
             if args.get("kind") == "assignment":
                 if agent["role"] != "tech_lead" and target["supervisor"] != agent["id"]:
                     raise ValueError("Assign work through the recipient's lead; ordinary collaboration messages are unrestricted")
@@ -493,7 +527,7 @@ class Runtime:
                     team = self.store.get("team", agent["team_id"])
                     for lead in {team["lead"], self.root["id"]} - {args["to"]}:
                         self.notify(lead, "BLOCKER from " + agent["id"] + ": " + args["text"], agent["id"])
-            return {"message_id": seq}
+            return {"message_id": seq, "recipient": recipient}
         if name == "wait":
             seconds = max(.5, float(args.get("seconds", self.config.remaining)))
             agent["wait_requested"] = True
@@ -569,8 +603,10 @@ class Runtime:
                 path = self.writable(agent, args["path"])
             if path.suffix != ".py" or not path.is_file():
                 raise ValueError("Provide an existing .py path or code")
-            kind = args.get("kind", "evaluation" if agent["role"] == "evaluator" else "research")
             team = self.store.get("team", agent["team_id"]) if agent["team_id"] else None
+            default_kind = "evaluation" if agent["role"] == "evaluator" else (
+                "finalization" if agent["role"] == "ml_engineer" and team and team.get("purpose") == "delivery" and not self.published else "research")
+            kind = args.get("kind", default_kind)
             if team and team["state"] != "active" and kind == "research":
                 raise ValueError("Team is draining: preserve results and verify/finalize existing work")
             if team and kind == "research":

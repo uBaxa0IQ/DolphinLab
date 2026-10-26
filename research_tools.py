@@ -21,9 +21,11 @@ def spec(name, description, properties, required=(), roles=None, route=None, fix
 JOB_OPTIONS = {"cpus": I, "ram_mb": I, "timeout": N, "wait_for_seconds": N,
                "kind": {"enum": ["research", "evaluation", "finalization"]}}
 CATALOG = [
-    spec("send_message", "Address a colleague. assignment updates a subordinate's visible focus. finding records a reusable reported conclusion. blocker immediately alerts both leads; attach candidate_id to block publication. References preserve evidence without copying code.",
+    spec("send_message", "Address an agent ID, team ID (routes to its lead), supervisor, or unique role in your team. assignment updates a subordinate's focus. finding records a reported conclusion. blocker alerts both leads; candidate_id blocks publication. References preserve evidence.",
          {"to": S, "text": S, "kind": {"enum": ["message", "assignment", "finding", "blocker"]},
           "references": STRINGS, "candidate_id": S, "next_action": S}, ["to", "text"]),
+    spec("set_reasoning", "Choose low/medium/high for your next turns, with a reason. Use high for difficult scientific decisions; routine coordination can use medium. Compaction uses its separate light setting. Do not spend turns changing this unnecessarily.",
+         {"effort": {"enum": ["low", "medium", "high"]}, "reason": S}, ["effort", "reason"]),
     spec("read_file", "Read text by absolute path. Read code/CSV deliberately in pages; exact originals remain available.",
          {"path": S, "start_line": I, "lines": I}, ["path"], route="files", fixed={"action": "read"}),
     spec("list_files", "List a task or artifact directory. Use absolute paths from current state.",

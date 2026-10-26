@@ -490,6 +490,14 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(create.call_args.kwargs["reasoning_effort"], "low")
         self.assertEqual(create.call_args.kwargs["extra_body"]["reasoning"]["effort"], "low")
         self.assertEqual(self.config.reasoning_effort, "high")
+        from research_llm import request_effort
+        selected = request_effort.set("medium")
+        try:
+            await backend.complete([{"role": "user", "content": "Coordinate"}])
+        finally:
+            request_effort.reset(selected)
+        self.assertEqual(create.call_args.kwargs["reasoning_effort"], "medium")
+        self.assertEqual(create.call_args.kwargs["extra_body"]["reasoning"]["effort"], "medium")
 
     async def test_recovery_adopts_live_worker_without_restarting_code_or_clock(self):
         import sys
@@ -578,6 +586,46 @@ asyncio.run(main())
         final = await self.wait_job(result["job_id"])
         self.assertEqual(final["state"], "succeeded")
         self.assertTrue(self.runtime.store.pending(ml["id"]))
+
+    async def test_messages_route_team_and_unique_role_without_guessing(self):
+        team = await self.create_team()
+        lead, ml = self.runtime.agents[team["lead"]], self.runtime.agents[team["ml_engineer"]]
+        delivered = await self.runtime.dispatch(self.runtime.root, "send_message", {"to": team["id"], "text": "Portfolio decision"})
+        self.assertEqual(delivered["recipient"], lead["id"])
+        delivered = await self.runtime.dispatch(ml, "send_message", {"to": "tech_lead", "text": "Finding"})
+        self.assertEqual(delivered["recipient"], self.runtime.root["id"])
+        delivered = await self.runtime.dispatch(ml, "send_message", {"to": "supervisor", "text": "Status"})
+        self.assertEqual(delivered["recipient"], lead["id"])
+        await self.runtime.dispatch(lead, "add_specialist", {"team_id": team["id"], "role": "ml_engineer", "assignment": "Separate question"})
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            await self.runtime.dispatch(lead, "send_message", {"to": "ml_engineer", "text": "Must select owner"})
+
+    async def test_checkpoint_delivery_is_allowed_at_team_finalization_boundary(self):
+        team = await self.create_team()
+        lead, ml = self.runtime.agents[team["lead"]], self.runtime.agents[team["ml_engineer"]]
+        await self.runtime.dispatch(lead, "plan_team", {"team_id": team["id"], "phase": "finalization", "reason": "Deliver now"})
+        result = await self.runtime.dispatch(ml, "run_python", {"purpose": "First delivery", "code": "print('deliver')", "cpus": 1, "ram_mb": 256})
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(result["kind"], "finalization")
+        with self.assertRaises(ValueError):
+            await self.runtime.dispatch(ml, "run_python", {"purpose": "New exploration", "code": "print('explore')", "kind": "research"})
+
+    async def test_timeout_feedback_changes_retry_context_without_replaying_tools(self):
+        class TimeoutClient(Client):
+            async def complete(self, messages, tools=None):
+                raise TimeoutError()
+        self.runtime.client = TimeoutClient()
+        await self.runtime.turn(self.runtime.root)
+        self.assertTrue(self.runtime.store.pending(self.runtime.root["id"]))
+        self.runtime.store.take_mail(self.runtime.root)
+        self.assertIn("make the next action smaller", self.runtime.root["history"][-1]["content"])
+        self.assertEqual(self.runtime.store.all("job"), [])
+
+    async def test_agent_can_escalate_coordination_reasoning_for_next_turn(self):
+        self.assertEqual(self.runtime.root["reasoning_effort"], "medium")
+        result = await self.runtime.dispatch(self.runtime.root, "set_reasoning", {"effort": "high", "reason": "Difficult conflicting evidence"})
+        self.assertEqual(result["next_turn_effort"], "high")
+        self.assertEqual(self.runtime.store.get("agent", self.runtime.root["id"])["reasoning_effort"], "high")
 
     async def test_literal_edit_repairs_script_and_does_not_mutate_frozen_job(self):
         team = await self.create_team()

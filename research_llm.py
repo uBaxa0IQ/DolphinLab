@@ -18,6 +18,7 @@ from research_store import dumps, uid
 
 request_actor = ContextVar("request_actor", default="coordinator")
 request_purpose = ContextVar("request_purpose", default="research")
+request_effort = ContextVar("request_effort", default=None)
 
 
 @dataclass
@@ -154,7 +155,7 @@ class ModelClient:
 
     async def complete(self, messages, tools=None):
         ident = uid("request")
-        effort = self.config.compaction_reasoning_effort if request_purpose.get() == "compaction" else self.config.reasoning_effort
+        effort = self.config.compaction_reasoning_effort if request_purpose.get() == "compaction" else (request_effort.get() or self.config.reasoning_effort)
         extra = dict(self.config.request_extra)
         if "reasoning" in extra:
             extra["reasoning"] = {**extra["reasoning"], "effort": effort}
@@ -180,6 +181,7 @@ class ModelClient:
             self.trace(ident, "request_started")
             response = await asyncio.wait_for(self.client.chat.completions.create(
                 model=self.config.model, messages=messages,
+                **({"temperature": self.config.temperature} if self.config.temperature is not None else {}),
                 **({"tools": tools, "parallel_tool_calls": False} if tools else {}),
                 **({"extra_body": extra} if extra else {}),
                 reasoning_effort=effort),

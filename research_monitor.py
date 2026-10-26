@@ -106,10 +106,12 @@ def render_status(s):
             research_usage = [r.get("usage", {}) for r in s.get("usage_records", []) if r.get("agent") == a["id"] and r.get("purpose", "research") == "research"]
             last_actual = research_usage[-1].get("prompt_tokens") if research_usage else None
         roster.append([ROLES.get(a["role"], a["role"]), STATES.get(a["state"], a["state"]), a.get("activity"),
+                       a.get("reasoning_effort", s["reasoning"]),
                        last_actual, context.get("estimated_input_tokens") if "system_bytes" in context else "Не измерен после хода",
                        len(own_usage), sum(u.get("prompt_tokens", 0) or 0 for u in own_usage),
                        sum(u.get("completion_tokens", 0) or 0 for u in own_usage), a["failures"]])
     lines += table(["Роль", "Состояние", "Последняя активность" if finished else "Текущая активность",
+                    "Thinking основных ходов",
                     "Последний запрос, вход (API)", "Текущий контекст, ~токенов", "Запросов", "Вход всего", "Выход всего", "Ошибок подряд"], roster)
     for a in s["agents"]:
         lines += [f"### {ROLES.get(a['role'], a['role'])}", "", f"ID: `{a['id']}`", "",
