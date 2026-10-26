@@ -14,6 +14,17 @@ from research_runtime import Runtime
 from research_monitor import atomic_write
 
 
+def choose_endpoint(endpoints, preferred=None):
+    eligible = [e for e in endpoints if e.get("status") == 0 and
+                {"tools", "reasoning"}.issubset(e.get("supported_parameters", [])) and
+                e.get("context_length") and e.get("max_completion_tokens") and
+                all(e.get("pricing_units", {}).get(k) == "token" for k in ("prompt", "completion")) and
+                not e.get("variable_pricings") and (not preferred or e.get("tag") == preferred)]
+    if not eligible:
+        raise ValueError("No active provider with tools, reasoning and reservable token pricing")
+    return min(eligible, key=lambda e: 10000 * float(e["pricing"]["prompt"]) + 4000 * float(e["pricing"]["completion"]))
+
+
 class BudgetedClient(ModelClient):
     def __init__(self, config, endpoint, budget):
         super().__init__(config)
@@ -91,7 +102,7 @@ async def execute(args):
         result = await http.get(config.base_url.rstrip("/") + "/models/" + config.model + "/endpoints")
         result.raise_for_status()
         endpoints = result.json()["data"]["endpoints"]
-    endpoint = next(e for e in endpoints if e.get("tag") == "tenstorrent" and e.get("status") == 0)
+    endpoint = choose_endpoint(endpoints, args.provider)
     if any(endpoint.get("pricing_units", {}).get(k) != "token" for k in ("prompt", "completion")) or endpoint.get("variable_pricings"):
         raise ValueError("Unsupported pricing structure: cannot reserve request cost safely")
     config.context_window = endpoint["context_length"]
@@ -143,6 +154,7 @@ if __name__ == "__main__":
     parser.add_argument("--budget", type=float, default=150)
     parser.add_argument("--reasoning-effort", choices=["low", "medium", "high"], default="high")
     parser.add_argument("--ledger", type=Path, help="Cumulative experiment budget JSON; unknown reservations remain committed")
+    parser.add_argument("--provider", help="Optional provider pin; otherwise choose an active inexpensive eligible route")
     parser.add_argument("--llm-concurrency", type=int, default=6,
                         help="Concurrent API requests; uses the normal runtime default unless overridden")
     raise SystemExit(asyncio.run(execute(parser.parse_args())))
