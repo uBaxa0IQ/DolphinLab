@@ -11,3 +11,10 @@ STATUS.md
 # Supplied datasets and local credentials stay outside version control
 examples/**/*.csv
 .env.*.local
+
+# Local platform preview and application data
+node_modules/
+apps/web/dist/
+.workspace-data/
+*.tsbuildinfo
+.platform-logs/
