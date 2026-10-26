@@ -88,3 +88,12 @@ class ToolReceipt(Base):
     state: Mapped[str] = mapped_column(String(24), default="started")
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class WorkspaceSettings(Base):
+    __tablename__ = "workspace_settings"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(80), default="Исследователь")
+    base_url: Mapped[str] = mapped_column(String(1000), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    encrypted_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -12,11 +12,12 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
-from .database import Base, DATA_ROOT, Directive, Event, InputFile, Message, Project, Session, engine
+from .database import Base, DATA_ROOT, Directive, Event, InputFile, Message, Project, Session, WorkspaceSettings, engine
+from .secrets import encrypt_key
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".md", ".txt", ".csv", ".tsv", ".parquet", ".json", ".jsonl", ".xlsx", ".zip", ".gz", ".npy", ".npz", ".feather"}
@@ -31,6 +32,78 @@ async def lifespan(_):
 
 
 app = FastAPI(title="Sonder workspace", version="0.1.0", lifespan=lifespan)
+
+
+class UpdateSettings(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    base_url: str = Field(default="", max_length=1000)
+    model: str = Field(default="", max_length=200)
+    api_key: SecretStr | None = None
+    clear_key: bool = False
+
+    @field_validator("display_name")
+    @classmethod
+    def nonempty_name(cls, value):
+        if not value.strip():
+            raise ValueError("Укажи имя")
+        return value.strip()
+
+    @field_validator("base_url")
+    @classmethod
+    def connection_url(cls, value):
+        from urllib.parse import urlsplit
+        value = value.strip().rstrip("/")
+        if not value:
+            return value
+        try:
+            parts = urlsplit(value)
+            _ = parts.port
+        except ValueError:
+            raise ValueError("Укажи корректный Base URL")
+        if parts.scheme not in ("https", "http") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+            raise ValueError("Нужен HTTP(S) Base URL без ключей, логина и параметров")
+        return value
+
+
+def settings_view(settings):
+    return {"display_name": settings.display_name if settings else "Исследователь",
+            "base_url": settings.base_url if settings else "", "model": settings.model if settings else "",
+            "key_configured": bool(settings and settings.encrypted_api_key), "execution_enabled": False}
+
+
+@app.get("/api/settings")
+def get_settings():
+    with Session() as db:
+        return settings_view(db.get(WorkspaceSettings, "local"))
+
+
+@app.put("/api/settings")
+def update_settings(body: UpdateSettings):
+    # The encrypted value is never returned to the browser or included in events.
+    ciphertext = None
+    supplied = body.api_key.get_secret_value().strip() if body.api_key else ""
+    if supplied and body.clear_key:
+        raise HTTPException(400, "Выбери замену или удаление ключа")
+    if supplied:
+        if len(supplied) > 8192:
+            raise HTTPException(400, "Слишком длинный ключ")
+        try:
+            ciphertext = encrypt_key(supplied)
+        except Exception:
+            raise HTTPException(500, "Не удалось зашифровать ключ. Изменения не сохранены.") from None
+    with Session.begin() as db:
+        settings = db.get(WorkspaceSettings, "local")
+        if settings is None:
+            settings = WorkspaceSettings(id="local")
+            db.add(settings)
+        settings.display_name = body.display_name
+        settings.base_url = body.base_url
+        settings.model = body.model.strip()
+        if body.clear_key:
+            settings.encrypted_api_key = None
+        elif ciphertext:
+            settings.encrypted_api_key = ciphertext
+        return settings_view(settings)
 
 
 class CreateProject(BaseModel):

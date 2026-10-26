@@ -25,12 +25,14 @@ import {
   Folder,
   FolderOpen,
   Layers3,
+  LayoutGrid,
   Loader2,
   MessageSquare,
   MoreHorizontal,
   Paperclip,
   Plus,
   Search,
+  Settings2,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -40,7 +42,15 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { demoProjects, initialDemoMessages } from "./demo";
-import type { ChatMessage, Experiment, Project, Team } from "./types";
+import type {
+  ChatMessage,
+  Experiment,
+  Project,
+  Team,
+  WorkspaceSettings,
+} from "./types";
+import SettingsPanel from "./SettingsPanel";
+import ProjectsDirectory from "./ProjectsDirectory";
 
 type Tab = "overview" | "teams" | "experiments" | "files";
 const tabs: { id: Tab; label: string }[] = [
@@ -396,6 +406,15 @@ function ExperimentRows({
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>(demoProjects);
+  const [directory, setDirectory] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<WorkspaceSettings>({
+    display_name: "Исследователь",
+    base_url: "",
+    model: "",
+    key_configured: false,
+    execution_enabled: false,
+  });
   const [selectedId, setSelectedId] = useState(demoProjects[0].id);
   const [tab, setTab] = useState<Tab>("overview");
   const [createOpen, setCreateOpen] = useState(false);
@@ -426,6 +445,10 @@ export default function App() {
     setDirective(false);
   }, [selectedId]);
   useEffect(() => {
+    api
+      .settings()
+      .then(setSettings)
+      .catch(() => {});
     api
       .projects()
       .then((actual) => setProjects([...demoProjects, ...actual]))
@@ -506,6 +529,7 @@ export default function App() {
   }, []);
 
   function select(id: string) {
+    setDirectory(false);
     setSelectedId(id);
     setTab("overview");
     setEventsOpen(false);
@@ -629,7 +653,7 @@ export default function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            select(demoProjects[0].id);
+            setDirectory(true);
           }}
         >
           <span className="brand-mark">
@@ -637,17 +661,12 @@ export default function App() {
           </span>
           sonder<span className="brand-period">.</span>
         </a>
-        <button
-          className="workspace-switch"
-          onClick={() =>
-            setNotice(
-              "Локальное пространство. Все проекты хранятся на этом компьютере.",
-            )
-          }
-        >
-          <span className="workspace-avatar">R</span>
+        <button className="workspace-switch" onClick={() => setDirectory(true)}>
+          <span className="workspace-avatar">
+            {settings.display_name[0]?.toUpperCase() || "Я"}
+          </span>
           <span>
-            Research workspace<small>Личное пространство</small>
+            Личное пространство<small>{settings.display_name}</small>
           </span>
           <ChevronDown size={14} />
         </button>
@@ -655,6 +674,17 @@ export default function App() {
           <Search size={16} />
           <span>Найти проект</span>
           <kbd>⌘ K</kbd>
+        </button>
+        <button
+          aria-label="Все проекты"
+          className={`all-projects-link ${directory ? "active" : ""}`}
+          onClick={() => {
+            setDirectory(true);
+            setEventsOpen(false);
+          }}
+        >
+          <LayoutGrid size={15} />
+          Все проекты<span>{projects.length}</span>
         </button>
         <div className="sidebar-section-title">
           <span>ПРОЕКТЫ</span>
@@ -670,7 +700,7 @@ export default function App() {
           {projects.map((p) => (
             <button
               key={p.id}
-              className={`project-nav-item ${project.id === p.id ? "active" : ""}`}
+              className={`project-nav-item ${!directory && project.id === p.id ? "active" : ""}`}
               onClick={() => select(p.id)}
             >
               <span className={`nav-project-dot ${p.status}`} />
@@ -700,17 +730,16 @@ export default function App() {
           </div>
           <button
             className="profile-button"
-            onClick={() =>
-              setNotice(
-                "Локальный режим. Настройки профиля появятся при подключении аккаунтов.",
-              )
-            }
+            onClick={() => setSettingsOpen(true)}
           >
-            <span className="profile-avatar">Я</span>
-            <span>
-              Моё пространство<small>Локально</small>
+            <span className="profile-avatar">
+              {settings.display_name[0]?.toUpperCase() || "Я"}
             </span>
-            <MoreHorizontal size={18} />
+            <span>
+              {settings.display_name}
+              <small>Настройки и API</small>
+            </span>
+            <Settings2 size={16} />
           </button>
         </div>
       </aside>
@@ -718,25 +747,44 @@ export default function App() {
         <header className="topbar">
           <div className="breadcrumbs">
             <Folder size={15} />
-            <span>Проекты</span>
-            <ChevronRight size={12} />
-            <strong>{project.name}</strong>
+            <button
+              className="breadcrumb-link"
+              onClick={() => setDirectory(true)}
+            >
+              Проекты
+            </button>
+            {!directory && (
+              <>
+                <ChevronRight size={12} />
+                <strong>{project.name}</strong>
+              </>
+            )}
           </div>
           <div className="topbar-actions">
-            {project.demo && (
+            <button
+              className="icon-button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Настройки профиля и API"
+              title="Настройки профиля и API"
+            >
+              <Settings2 size={17} />
+            </button>
+            {!directory && project.demo && (
               <span className="demo-badge">
                 <span />
                 Деморежим
               </span>
             )}
-            <button
-              className={`icon-button ${eventsOpen ? "selected" : ""}`}
-              onClick={() => setEventsOpen(!eventsOpen)}
-              aria-label="События проекта"
-              title="События проекта"
-            >
-              <Activity size={18} />
-            </button>
+            {!directory && (
+              <button
+                className={`icon-button ${eventsOpen ? "selected" : ""}`}
+                onClick={() => setEventsOpen(!eventsOpen)}
+                aria-label="События проекта"
+                title="События проекта"
+              >
+                <Activity size={18} />
+              </button>
+            )}
             <button
               className="icon-button mobile-chat-button"
               onClick={() => setChatMobile(!chatMobile)}
@@ -747,373 +795,398 @@ export default function App() {
           </div>
         </header>
         <main className="main-content">
-          <div className="project-heading">
-            <div>
-              <div className="eyebrow">
-                ИССЛЕДОВАНИЕ <span>/</span>{" "}
-                {project.demo ? "DEMO" : project.id.slice(0, 6).toUpperCase()}
-              </div>
-              <h1>{project.name}</h1>
-              <p>
-                {project.description ||
-                  "Добавь описание задачи и исходные данные."}
-              </p>
-            </div>
-            <Badge
-              tone={
-                project.status === "running"
-                  ? "green"
-                  : project.status === "completed"
-                    ? "neutral"
-                    : "amber"
-              }
-            >
-              <span className={`tiny-dot ${project.status}`} />
-              {project.status === "running"
-                ? "В работе"
-                : project.status === "completed"
-                  ? "Завершён"
-                  : "Черновик"}
-            </Badge>
-          </div>
-          <div className="tabs" role="tablist" aria-label="Разделы проекта">
-            {tabs.map((t) => (
-              <button
-                role="tab"
-                aria-selected={tab === t.id}
-                className={tab === t.id ? "active" : ""}
-                onClick={() => setTab(t.id)}
-                key={t.id}
-              >
-                {t.label}
-                {t.id === "teams" && project.teams.length > 0 && (
-                  <span>{project.teams.length}</span>
-                )}
-              </button>
-            ))}
-            <span className="tabs-trailing">
-              {project.demo ? "Обновлено только что" : "Данные сохранены"}
-            </span>
-          </div>
-          {eventsOpen && (
-            <section className="events-popover">
-              <div className="section-heading">
-                <h2>События проекта</h2>
-                <button
-                  className="icon-button"
-                  onClick={() => setEventsOpen(false)}
-                  aria-label="Закрыть события"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              {project.events.length ? (
-                project.events.map((event) => (
-                  <div className="popover-event" key={event.id}>
-                    <small>{event.time}</small>
-                    <div>
-                      <strong>{event.title}</strong>
-                      <p>{event.detail}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="muted">
-                  События появятся после запуска исследования.
-                </p>
-              )}
-            </section>
-          )}
-
-          {(tab === "overview" || tab === "teams") && (
+          {directory ? (
+            <ProjectsDirectory
+              projects={projects}
+              select={select}
+              create={() => setCreateOpen(true)}
+              name={settings.display_name}
+            />
+          ) : (
             <>
-              {tab === "overview" && (
-                <div className="summary-grid">
-                  <section className="best-result">
-                    <div className="summary-label">
-                      <span className="result-check">
-                        <Check size={13} />
-                      </span>
-                      Лучший результат
-                      <span className="metric-label">
-                        {project.metric || "Метрика не выбрана"}
-                      </span>
+              <div className="project-heading">
+                <div>
+                  <div className="eyebrow">
+                    ИССЛЕДОВАНИЕ <span>/</span>{" "}
+                    {project.demo
+                      ? "DEMO"
+                      : project.id.slice(0, 6).toUpperCase()}
+                  </div>
+                  <h1>{project.name}</h1>
+                  <p>
+                    {project.description ||
+                      "Добавь описание задачи и исходные данные."}
+                  </p>
+                </div>
+                <Badge
+                  tone={
+                    project.status === "running"
+                      ? "green"
+                      : project.status === "completed"
+                        ? "neutral"
+                        : "amber"
+                  }
+                >
+                  <span className={`tiny-dot ${project.status}`} />
+                  {project.status === "running"
+                    ? "В работе"
+                    : project.status === "completed"
+                      ? "Завершён"
+                      : "Черновик"}
+                </Badge>
+              </div>
+              <div className="tabs" role="tablist" aria-label="Разделы проекта">
+                {tabs.map((t) => (
+                  <button
+                    role="tab"
+                    aria-selected={tab === t.id}
+                    className={tab === t.id ? "active" : ""}
+                    onClick={() => setTab(t.id)}
+                    key={t.id}
+                  >
+                    {t.label}
+                    {t.id === "teams" && project.teams.length > 0 && (
+                      <span>{project.teams.length}</span>
+                    )}
+                  </button>
+                ))}
+                <span className="tabs-trailing">
+                  {project.demo ? "Обновлено только что" : "Данные сохранены"}
+                </span>
+              </div>
+              {eventsOpen && (
+                <section className="events-popover">
+                  <div className="section-heading">
+                    <h2>События проекта</h2>
+                    <button
+                      className="icon-button"
+                      onClick={() => setEventsOpen(false)}
+                      aria-label="Закрыть события"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  {project.events.length ? (
+                    project.events.map((event) => (
+                      <div className="popover-event" key={event.id}>
+                        <small>{event.time}</small>
+                        <div>
+                          <strong>{event.title}</strong>
+                          <p>{event.detail}</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="muted">
+                      События появятся после запуска исследования.
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {(tab === "overview" || tab === "teams") && (
+                <>
+                  {tab === "overview" && (
+                    <div className="summary-grid">
+                      <section className="best-result">
+                        <div className="summary-label">
+                          <span className="result-check">
+                            <Check size={13} />
+                          </span>
+                          Лучший результат
+                          <span className="metric-label">
+                            {project.metric || "Метрика не выбрана"}
+                          </span>
+                        </div>
+                        <div className="result-value">
+                          {project.score || "—"}
+                          {project.score && project.id === "demo-retention" && (
+                            <span>
+                              <ArrowUpRight size={13} />
+                              +0.0182
+                            </span>
+                          )}
+                        </div>
+                        <div className="result-bottom">
+                          <span>
+                            {project.score
+                              ? "Независимая проверка пройдена"
+                              : "Появится после первого эксперимента"}
+                          </span>
+                          {project.score && (
+                            <button
+                              onClick={downloadDemo}
+                              aria-label="Скачать демонстрационный отчёт"
+                              title="Демонстрационный отчёт"
+                            >
+                              <ArrowDownToLine size={15} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="mini-chart" aria-hidden="true">
+                          <svg viewBox="0 0 140 60">
+                            <path d="M0 55L20 49L38 51L57 35L76 38L94 18L112 21L140 2" />
+                          </svg>
+                        </div>
+                      </section>
+                      <section className="summary-card">
+                        <span className="summary-label">
+                          <Users size={15} />
+                          Команды
+                        </span>
+                        <div className="stat-value">
+                          {project.teams.length}
+                          <small>
+                            {project.teams.length
+                              ? `${project.teams.filter((t) => t.state === "running").length} исследуют`
+                              : "готовы к формированию"}
+                          </small>
+                        </div>
+                        <div className="summary-bottom">
+                          <span className="tiny-dot running" />
+                          {project.teams.reduce(
+                            (n, t) => n + t.members.length,
+                            0,
+                          )}{" "}
+                          агентов в проекте
+                        </div>
+                      </section>
+                      <section className="summary-card">
+                        <span className="summary-label">
+                          <FlaskConical size={15} />
+                          Эксперименты
+                        </span>
+                        <div className="stat-value">
+                          {project.experiments.length}
+                          <small>
+                            {
+                              project.experiments.filter(
+                                (e) => e.status === "verified",
+                              ).length
+                            }{" "}
+                            проверено
+                          </small>
+                        </div>
+                        <div className="summary-bottom">
+                          <Clock3 size={13} />
+                          {project.experiments.some(
+                            (e) => e.status === "running",
+                          )
+                            ? "Один эксперимент выполняется"
+                            : "Нет активных экспериментов"}
+                        </div>
+                      </section>
                     </div>
-                    <div className="result-value">
-                      {project.score || "—"}
-                      {project.score && project.id === "demo-retention" && (
+                  )}
+                  <section className="teams-section">
+                    <div className="section-heading">
+                      <h2>
+                        Команды{" "}
                         <span>
-                          <ArrowUpRight size={13} />
-                          +0.0182
+                          {project.teams.length
+                            ? String(project.teams.length).padStart(2, "0")
+                            : ""}
+                        </span>
+                      </h2>
+                      {project.teams.length > 0 && (
+                        <span className="section-hint">
+                          <span className="tiny-dot running" />
+                          Работают автономно
                         </span>
                       )}
                     </div>
-                    <div className="result-bottom">
-                      <span>
-                        {project.score
-                          ? "Независимая проверка пройдена"
-                          : "Появится после первого эксперимента"}
-                      </span>
-                      {project.score && (
-                        <button
-                          onClick={downloadDemo}
-                          aria-label="Скачать демонстрационный отчёт"
-                          title="Демонстрационный отчёт"
-                        >
-                          <ArrowDownToLine size={15} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="mini-chart" aria-hidden="true">
-                      <svg viewBox="0 0 140 60">
-                        <path d="M0 55L20 49L38 51L57 35L76 38L94 18L112 21L140 2" />
-                      </svg>
-                    </div>
+                    {project.teams.length > 0 ? (
+                      <div className="team-grid">
+                        {project.teams.map((t) => (
+                          <TeamCard
+                            key={t.id}
+                            team={t}
+                            open={() => setTeam(t)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-state">
+                        <span className="empty-icon">
+                          <Users size={27} strokeWidth={1.3} />
+                        </span>
+                        <h3>
+                          {project.status === "completed"
+                            ? "Работа завершена"
+                            : "Здесь соберётся команда"}
+                        </h3>
+                        <p>
+                          {project.demo
+                            ? "Открой «Отток клиентов», чтобы посмотреть активное исследование."
+                            : "Проект сохранён. Загрузка данных и история чата уже доступны; исполнение агентов подключается следующим этапом."}
+                        </p>
+                        {!project.demo && (
+                          <button
+                            className="button secondary"
+                            onClick={() => setTab("files")}
+                          >
+                            <Upload size={15} />
+                            Добавить данные
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </section>
-                  <section className="summary-card">
-                    <span className="summary-label">
-                      <Users size={15} />
-                      Команды
-                    </span>
-                    <div className="stat-value">
-                      {project.teams.length}
-                      <small>
-                        {project.teams.length
-                          ? `${project.teams.filter((t) => t.state === "running").length} исследуют`
-                          : "готовы к формированию"}
-                      </small>
-                    </div>
-                    <div className="summary-bottom">
-                      <span className="tiny-dot running" />
-                      {project.teams.reduce(
-                        (n, t) => n + t.members.length,
-                        0,
-                      )}{" "}
-                      агентов в проекте
-                    </div>
-                  </section>
-                  <section className="summary-card">
-                    <span className="summary-label">
-                      <FlaskConical size={15} />
-                      Эксперименты
-                    </span>
-                    <div className="stat-value">
-                      {project.experiments.length}
-                      <small>
-                        {
-                          project.experiments.filter(
-                            (e) => e.status === "verified",
-                          ).length
-                        }{" "}
-                        проверено
-                      </small>
-                    </div>
-                    <div className="summary-bottom">
-                      <Clock3 size={13} />
-                      {project.experiments.some((e) => e.status === "running")
-                        ? "Один эксперимент выполняется"
-                        : "Нет активных экспериментов"}
-                    </div>
-                  </section>
-                </div>
+                </>
               )}
-              <section className="teams-section">
-                <div className="section-heading">
-                  <h2>
-                    Команды{" "}
-                    <span>
-                      {project.teams.length
-                        ? String(project.teams.length).padStart(2, "0")
-                        : ""}
-                    </span>
-                  </h2>
-                  {project.teams.length > 0 && (
-                    <span className="section-hint">
-                      <span className="tiny-dot running" />
-                      Работают автономно
-                    </span>
-                  )}
-                </div>
-                {project.teams.length > 0 ? (
-                  <div className="team-grid">
-                    {project.teams.map((t) => (
-                      <TeamCard key={t.id} team={t} open={() => setTeam(t)} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">
-                    <span className="empty-icon">
-                      <Users size={27} strokeWidth={1.3} />
-                    </span>
-                    <h3>
-                      {project.status === "completed"
-                        ? "Работа завершена"
-                        : "Здесь соберётся команда"}
-                    </h3>
-                    <p>
-                      {project.demo
-                        ? "Открой «Отток клиентов», чтобы посмотреть активное исследование."
-                        : "Проект сохранён. Загрузка данных и история чата уже доступны; исполнение агентов подключается следующим этапом."}
-                    </p>
-                    {!project.demo && (
+              {(tab === "overview" || tab === "experiments") && (
+                <section className="experiments-section">
+                  <div className="section-heading">
+                    <h2>
+                      {tab === "overview"
+                        ? "Последние эксперименты"
+                        : "Эксперименты"}
+                    </h2>
+                    {tab === "overview" && project.experiments.length > 0 && (
                       <button
-                        className="button secondary"
-                        onClick={() => setTab("files")}
+                        className="text-button"
+                        onClick={() => setTab("experiments")}
                       >
-                        <Upload size={15} />
-                        Добавить данные
+                        Все эксперименты
+                        <ArrowRight size={14} />
                       </button>
                     )}
                   </div>
-                )}
-              </section>
-            </>
-          )}
-          {(tab === "overview" || tab === "experiments") && (
-            <section className="experiments-section">
-              <div className="section-heading">
-                <h2>
-                  {tab === "overview"
-                    ? "Последние эксперименты"
-                    : "Эксперименты"}
-                </h2>
-                {tab === "overview" && project.experiments.length > 0 && (
-                  <button
-                    className="text-button"
-                    onClick={() => setTab("experiments")}
-                  >
-                    Все эксперименты
-                    <ArrowRight size={14} />
-                  </button>
-                )}
-              </div>
-              {project.experiments.length ? (
-                <ExperimentRows
-                  rows={
-                    tab === "overview"
-                      ? project.experiments.slice(0, 3)
-                      : project.experiments
-                  }
-                  open={setExperiment}
-                />
-              ) : (
-                <div className="quiet-empty">
-                  <FlaskConical size={20} />
-                  <span>Пока нет экспериментов</span>
-                </div>
-              )}
-            </section>
-          )}
-          {tab === "overview" && (
-            <section className="activity-section">
-              <div className="section-heading">
-                <h2>Ход исследования</h2>
-                <span className="section-hint">Последние события</span>
-              </div>
-              <div className="activity-feed">
-                {project.events.map((event, index) => (
-                  <div className="feed-row" key={event.id}>
-                    <span className="feed-time">{event.time}</span>
-                    <div className={`feed-marker ${event.type}`}>
-                      {event.type === "result" ? <Check size={11} /> : <span />}
-                      {index < project.events.length - 1 && <i />}
-                    </div>
-                    <div>
-                      <strong>{event.title}</strong>
-                      <p>{event.detail}</p>
-                    </div>
-                  </div>
-                ))}
-                {!project.events.length && (
-                  <p className="muted">
-                    Здесь появится история работы команды.
-                  </p>
-                )}
-              </div>
-            </section>
-          )}
-          {tab === "files" && (
-            <section>
-              <div className="section-heading">
-                <h2>
-                  Файлы проекта <span>{project.files.length}</span>
-                </h2>
-                <button
-                  className="button secondary small"
-                  disabled={uploading}
-                  onClick={() =>
-                    project.demo
-                      ? setNotice("Создай свой проект, чтобы загрузить файлы.")
-                      : uploadPicker.current?.click()
-                  }
-                >
-                  {uploading ? (
-                    <Loader2 size={14} className="spin" />
+                  {project.experiments.length ? (
+                    <ExperimentRows
+                      rows={
+                        tab === "overview"
+                          ? project.experiments.slice(0, 3)
+                          : project.experiments
+                      }
+                      open={setExperiment}
+                    />
                   ) : (
-                    <Plus size={14} />
+                    <div className="quiet-empty">
+                      <FlaskConical size={20} />
+                      <span>Пока нет экспериментов</span>
+                    </div>
                   )}
-                  Добавить файлы
-                </button>
-              </div>
-              <input
-                type="file"
-                ref={uploadPicker}
-                hidden
-                multiple
-                onChange={(e) => {
-                  void upload(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              <div className="file-list">
-                {project.files.map((file) => (
-                  <div className="file-row" key={file.id}>
-                    <span
-                      className={`file-symbol ${file.name.endsWith(".md") ? "markdown" : ""}`}
-                    >
-                      {file.name.endsWith(".md") ? (
-                        <FileText size={21} />
-                      ) : (
-                        <File size={21} />
-                      )}
-                    </span>
-                    <span>
-                      <strong>{file.name}</strong>
-                      <small>{file.kind}</small>
-                    </span>
-                    <span className="file-size">{size(file.size)}</span>
-                    {project.demo ? (
-                      <Badge>Демо</Badge>
-                    ) : (
-                      <a
-                        className="icon-button"
-                        href={`/api/projects/${project.id}/files/${file.id}`}
-                        aria-label={`Скачать ${file.name}`}
-                      >
-                        <ArrowDownToLine size={17} />
-                      </a>
+                </section>
+              )}
+              {tab === "overview" && (
+                <section className="activity-section">
+                  <div className="section-heading">
+                    <h2>Ход исследования</h2>
+                    <span className="section-hint">Последние события</span>
+                  </div>
+                  <div className="activity-feed">
+                    {project.events.map((event, index) => (
+                      <div className="feed-row" key={event.id}>
+                        <span className="feed-time">{event.time}</span>
+                        <div className={`feed-marker ${event.type}`}>
+                          {event.type === "result" ? (
+                            <Check size={11} />
+                          ) : (
+                            <span />
+                          )}
+                          {index < project.events.length - 1 && <i />}
+                        </div>
+                        <div>
+                          <strong>{event.title}</strong>
+                          <p>{event.detail}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {!project.events.length && (
+                      <p className="muted">
+                        Здесь появится история работы команды.
+                      </p>
                     )}
                   </div>
-                ))}
-              </div>
-              {!project.files.length && (
-                <button
-                  className="dropzone file-empty"
-                  onClick={() => uploadPicker.current?.click()}
-                >
-                  <Upload size={25} />
-                  <span>Добавить исходные данные</span>
-                  <small>Датасет, task.md или пример результата</small>
-                </button>
+                </section>
               )}
-            </section>
+              {tab === "files" && (
+                <section>
+                  <div className="section-heading">
+                    <h2>
+                      Файлы проекта <span>{project.files.length}</span>
+                    </h2>
+                    <button
+                      className="button secondary small"
+                      disabled={uploading}
+                      onClick={() =>
+                        project.demo
+                          ? setNotice(
+                              "Создай свой проект, чтобы загрузить файлы.",
+                            )
+                          : uploadPicker.current?.click()
+                      }
+                    >
+                      {uploading ? (
+                        <Loader2 size={14} className="spin" />
+                      ) : (
+                        <Plus size={14} />
+                      )}
+                      Добавить файлы
+                    </button>
+                  </div>
+                  <input
+                    type="file"
+                    ref={uploadPicker}
+                    hidden
+                    multiple
+                    onChange={(e) => {
+                      void upload(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                  <div className="file-list">
+                    {project.files.map((file) => (
+                      <div className="file-row" key={file.id}>
+                        <span
+                          className={`file-symbol ${file.name.endsWith(".md") ? "markdown" : ""}`}
+                        >
+                          {file.name.endsWith(".md") ? (
+                            <FileText size={21} />
+                          ) : (
+                            <File size={21} />
+                          )}
+                        </span>
+                        <span>
+                          <strong>{file.name}</strong>
+                          <small>{file.kind}</small>
+                        </span>
+                        <span className="file-size">{size(file.size)}</span>
+                        {project.demo ? (
+                          <Badge>Демо</Badge>
+                        ) : (
+                          <a
+                            className="icon-button"
+                            href={`/api/projects/${project.id}/files/${file.id}`}
+                            aria-label={`Скачать ${file.name}`}
+                          >
+                            <ArrowDownToLine size={17} />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {!project.files.length && (
+                    <button
+                      className="dropzone file-empty"
+                      onClick={() => uploadPicker.current?.click()}
+                    >
+                      <Upload size={25} />
+                      <span>Добавить исходные данные</span>
+                      <small>Датасет, task.md или пример результата</small>
+                    </button>
+                  )}
+                </section>
+              )}
+              <footer className="content-footer">
+                <span className="footer-spark">✳</span>{" "}
+                {project.demo
+                  ? "Демонстрационный проект · все результаты вымышлены"
+                  : "Локальный проект · модель не вызывается"}
+              </footer>
+            </>
           )}
-          <footer className="content-footer">
-            <span className="footer-spark">✳</span>{" "}
-            {project.demo
-              ? "Демонстрационный проект · все результаты вымышлены"
-              : "Локальный проект · модель не вызывается"}
-          </footer>
         </main>
       </div>
 
@@ -1320,6 +1393,22 @@ export default function App() {
         </div>
       </aside>
 
+      {settingsOpen && (
+        <Modal
+          close={() => setSettingsOpen(false)}
+          label="Настройки профиля и API"
+          wide
+        >
+          <SettingsPanel
+            close={() => setSettingsOpen(false)}
+            saved={(value) => {
+              setSettings(value);
+              setSettingsOpen(false);
+              setNotice("Настройки сохранены");
+            }}
+          />
+        </Modal>
+      )}
       {createOpen && (
         <CreateProject
           close={() => setCreateOpen(false)}

@@ -1,4 +1,9 @@
-import type { Project, ChatMessage, InputFile } from "./types";
+import type {
+  Project,
+  ChatMessage,
+  InputFile,
+  WorkspaceSettings,
+} from "./types";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch("/api" + path, init);
   if (!response.ok) {
@@ -17,6 +22,18 @@ const json = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 export const api = {
+  settings: () => request<WorkspaceSettings>("/settings"),
+  saveSettings: (settings: {
+    display_name: string;
+    base_url: string;
+    model: string;
+    api_key?: string;
+    clear_key?: boolean;
+  }) =>
+    request<WorkspaceSettings>("/settings", {
+      ...json(settings),
+      method: "PUT",
+    }),
   projects: () => request<Project[]>("/projects"),
   project: (id: string) => request<Project>(`/projects/${id}`),
   create: (name: string, description: string) =>

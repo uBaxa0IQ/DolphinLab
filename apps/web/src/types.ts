@@ -1,3 +1,10 @@
+export type WorkspaceSettings = {
+  display_name: string;
+  base_url: string;
+  model: string;
+  key_configured: boolean;
+  execution_enabled: boolean;
+};
 export type Member = {
   name: string;
   role: string;
