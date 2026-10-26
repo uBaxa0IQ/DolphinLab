@@ -111,7 +111,11 @@ class PlatformRuntime(Runtime):
                     "content": messages[0]["content"]
                     + "\nPlatform policy: the project's exploration preference controls whether to deepen or diversify; generic portfolio examples above are suggestions. Never force a team count or exploration intensity that contradicts the project policy.",
                 }
-            return [*messages, context_message(self.policy)]
+            return {
+                "context": [*messages, context_message(self.policy)],
+                "history": copy.deepcopy(agent["history"]),
+                "summary": agent.get("summary", ""),
+            }
 
         async def complete(state):
             try:
@@ -189,7 +193,7 @@ class PlatformRuntime(Runtime):
             {
                 "agent_id": agent["id"],
                 "role": agent["role"],
-                "history": agent["history"],
+                "history": copy.deepcopy(agent["history"]),
             },
             {
                 "configurable": {

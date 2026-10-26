@@ -24,7 +24,7 @@ class AgentState(TypedDict, total=False):
     source_message_id: str
 
 
-ContextBuilder = Callable[[AgentState], Awaitable[list[dict]]]
+ContextBuilder = Callable[[AgentState], Awaitable[list[dict] | dict[str, Any]]]
 ModelCall = Callable[[AgentState], Awaitable[dict]]
 ToolDispatcher = Callable[[str, dict], Awaitable[dict]]
 
@@ -43,12 +43,16 @@ def build_agent_graph(
         )
 
     async def context(state: AgentState):
-        messages = await prepare(state)
+        prepared = await prepare(state)
+        updates = (
+            dict(prepared) if isinstance(prepared, dict) else {"context": prepared}
+        )
+        messages = updates["context"]
         if state.get("project_policy"):
             # Worker supplies a frozen policy snapshot when creating a run.
             # The future scheduler must independently enforce these ceilings.
             messages = [*messages, context_message(state["project_policy"])]
-        return {"context": messages}
+        return {**updates, "context": messages}
 
     async def model(state: AgentState):
         response = await complete(state)
