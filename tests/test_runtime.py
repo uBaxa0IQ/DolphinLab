@@ -124,9 +124,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         team = await self.create_team()
         engineer = self.runtime.agents[team["ml_engineer"]]
         first = await self.runtime.dispatch(engineer, "run_python", {
-            "code": "import time; time.sleep(10)", "purpose": "Timeout", "cpus": 2, "ram_mb": 256, "timeout": .4})
+            "code": "import time; time.sleep(10)", "purpose": "Timeout", "cpus": 2, "ram_mb": 256, "timeout": .4, "wait_for_seconds": 0})
         second = await self.runtime.dispatch(engineer, "run_python", {
-            "code": "print('should not run')", "purpose": "Queued cancellation", "cpus": 1, "ram_mb": 256})
+            "code": "print('should not run')", "purpose": "Queued cancellation", "cpus": 1, "ram_mb": 256, "wait_for_seconds": 0})
         self.runtime.jobs.cancel(second["job_id"])
         results = await asyncio.gather(self.wait_job(first["job_id"]), self.wait_job(second["job_id"]))
         self.assertEqual([j["state"] for j in results], ["timed_out", "cancelled"])
@@ -385,7 +385,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         ml, lead = self.runtime.agents[team["ml_engineer"]], self.runtime.agents[team["lead"]]
         self.runtime.store.take_mail(lead)
         submitted = await self.runtime.dispatch(ml, "run_python", {
-            "code": "print('completed evidence')", "purpose": "Completion event", "cpus": 1, "ram_mb": 256})
+            "code": "print('completed evidence')", "purpose": "Completion event", "cpus": 1, "ram_mb": 256, "wait_for_seconds": 0})
         await self.wait_job(submitted["job_id"])
         self.assertFalse(self.runtime.store.pending(lead["id"]))
         self.assertTrue(self.runtime.store.pending(ml["id"]))
@@ -479,6 +479,17 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent["reasoning_effort"], "low")
         self.assertNotIn("max_tokens", sent)
         self.assertNotIn("max_completion_tokens", sent)
+        from research_llm import request_purpose
+        self.config.reasoning_effort = "high"
+        self.config.request_extra = {"reasoning": {"effort": "high"}}
+        purpose = request_purpose.set("compaction")
+        try:
+            await backend.complete([{"role": "user", "content": "summarize evidence"}])
+        finally:
+            request_purpose.reset(purpose)
+        self.assertEqual(create.call_args.kwargs["reasoning_effort"], "low")
+        self.assertEqual(create.call_args.kwargs["extra_body"]["reasoning"]["effort"], "low")
+        self.assertEqual(self.config.reasoning_effort, "high")
 
     async def test_recovery_adopts_live_worker_without_restarting_code_or_clock(self):
         import sys
@@ -492,7 +503,7 @@ async def main():
     rt = Runtime(Config(Path(sys.argv[1]), Path(sys.argv[2]), seconds=30, cpus=2, ram_mb=1024, status_file=None), Client())
     team = await rt.dispatch(rt.root, "create_team", {"direction":"Recovery", "goal":"Preserve worker"})
     ml = rt.agents[team["ml_engineer"]]
-    job = await rt.dispatch(ml, "run_python", {"purpose":"Survive coordinator crash", "code":"from pathlib import Path\\nimport time\\nwith Path('executions.txt').open('a') as f: f.write('once\\\\n')\\ntime.sleep(3)\\nPath('done.txt').write_text('finished')", "cpus":1, "ram_mb":256})
+    job = await rt.dispatch(ml, "run_python", {"purpose":"Survive coordinator crash", "code":"from pathlib import Path\\nimport time\\nwith Path('executions.txt').open('a') as f: f.write('once\\\\n')\\ntime.sleep(3)\\nPath('done.txt').write_text('finished')", "cpus":1, "ram_mb":256, "wait_for_seconds":0})
     while not (Path(job["folder"]) / "process.json").exists(): await asyncio.sleep(.02)
     os._exit(77)
 asyncio.run(main())
@@ -535,6 +546,46 @@ asyncio.run(main())
         self.assertTrue(failure_kind(auth).shared)
         self.assertTrue(failure_kind(TimeoutError()).retryable)
         self.assertTrue(failure_kind(ResponseProblem("incomplete", "truncated reasoning")).retryable)
+        self.assertFalse(failure_kind(Error("Budget has been exceeded")).retryable)
+
+    async def test_short_python_result_is_inline_without_duplicate_completion_mail(self):
+        team = await self.create_team()
+        ml = self.runtime.agents[team["ml_engineer"]]
+        self.runtime.store.take_mail(ml)
+        result = await self.runtime.dispatch(ml, "run_python", {
+            "code": "print('direct observation')", "purpose": "Short diagnostic", "cpus": 1, "ram_mb": 256})
+        self.assertTrue(result["completion_in_tool_result"])
+        self.assertEqual(result["state"], "succeeded")
+        self.assertIn("direct observation", result["stdout_tail"])
+        self.assertTrue(Path(result["script"]).is_file())
+        self.assertFalse(self.runtime.store.pending(ml["id"]))
+
+    async def test_inline_observation_timeout_does_not_cancel_execution(self):
+        team = await self.create_team()
+        ml = self.runtime.agents[team["ml_engineer"]]
+        result = await self.runtime.dispatch(ml, "run_python", {
+            "code": "import time; time.sleep(.3); print('continued')", "purpose": "Longer than observation",
+            "cpus": 1, "ram_mb": 256, "wait_for_seconds": .01})
+        final = await self.wait_job(result["job_id"])
+        self.assertEqual(final["state"], "succeeded")
+        self.assertTrue(self.runtime.store.pending(ml["id"]))
+
+    async def test_literal_edit_repairs_script_and_does_not_mutate_frozen_job(self):
+        team = await self.create_team()
+        ml = self.runtime.agents[team["ml_engineer"]]
+        file = await self.runtime.dispatch(ml, "write_file", {"path": "repair.py", "content": "print(undefined_name)\n"})
+        first = await self.runtime.dispatch(ml, "run_script", {
+            "path": file["path"], "purpose": "Observe error", "cpus": 1, "ram_mb": 256})
+        self.assertEqual(first["state"], "failed")
+        await self.runtime.dispatch(ml, "replace_text", {"path": file["path"], "old_text": "undefined_name", "new_text": "42"})
+        second = await self.runtime.dispatch(ml, "run_script", {
+            "path": file["path"], "purpose": "Verify repair", "cpus": 1, "ram_mb": 256})
+        self.assertEqual(second["state"], "succeeded")
+        self.assertIn("42", second["stdout_tail"])
+        self.assertIn("undefined_name", Path(first["script"]).read_text())
+        with self.assertRaises(ValueError):
+            await self.runtime.dispatch(self.runtime.agents[team["lead"]], "replace_text", {
+                "path": file["path"], "old_text": "42", "new_text": "0"})
 
     async def test_run_reserves_time_for_shutdown_before_absolute_deadline(self):
         class Slow(Client):

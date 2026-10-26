@@ -18,6 +18,7 @@ class Config:
     llm_concurrency: int = 6
     max_agents: int = 25
     reasoning_effort: str = "high"
+    compaction_reasoning_effort: str = "low"
     request_timeout: float = 300
     shutdown_seconds: float = 15
     request_extra: dict = field(default_factory=dict)

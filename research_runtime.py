@@ -54,6 +54,7 @@ class Runtime:
         self.phase_announced = False
         self.published = None
         self.api_blocked = False
+        self.inline_jobs = set()
         self.jobs = Jobs(config, self.store, self.job_finished)
         self.ledger = ResearchLedger(self)
         self.timing = Timing(self)
@@ -139,18 +140,24 @@ class Runtime:
         if recipient in self.agents and self.agents[recipient]["state"] != "closed":
             self.store.send(recipient, sender, text)
 
-    async def job_finished(self, job):
-        facts = {k: job.get(k) for k in ("id", "state", "exit_code", "folder", "peak_ram_mb", "error")}
+    def job_view(self, job, tail_bytes=4000):
+        facts = {k: v for k, v in job.items() if k != "token"}
+        facts["job_id"] = job["id"]
         facts["elapsed_seconds"] = round(job.get("finished", time.time()) - job.get("started", job["submitted"]), 2)
         facts["logs"] = {name: str(Path(job["folder"]) / (name + ".log")) for name in ("stdout", "stderr")}
         for name, log_path in facts["logs"].items():
             path = Path(log_path)
             if path.is_file():
                 with path.open("rb") as stream:
-                    stream.seek(max(0, path.stat().st_size - 4000))
+                    stream.seek(max(0, path.stat().st_size - tail_bytes))
                     facts[name + "_tail"] = stream.read().decode("utf-8", errors="replace")
+        return facts
+
+    async def job_finished(self, job):
+        facts = self.job_view(job)
         message = "Python job completed. Interpret the evidence and report the useful conclusion. " + dumps(facts)
-        self.notify(job["owner"], message)
+        if job["id"] not in self.inline_jobs:
+            self.notify(job["owner"], message)
         owner = self.agents[job["owner"]]
         owner["phase_pending"] = True
         self.store.put("agent", owner["id"], owner)
@@ -514,9 +521,18 @@ class Runtime:
             return result
         if name == "files":
             action = args["action"]
-            if agent["role"] in MANAGERS and action in ("write", "append"):
+            if agent["role"] in MANAGERS and action in ("write", "append", "replace"):
                 raise ValueError("Managers do not write implementation files. Assign a specialist; use write_note for coordination.")
-            path = self.writable(agent, args["path"]) if action in ("write", "append") else self.readable(args["path"])
+            path = self.writable(agent, args["path"]) if action in ("write", "append", "replace") else self.readable(args["path"])
+            if action == "replace":
+                original = path.read_text(encoding="utf-8")
+                old = args["old_text"]
+                expected = int(args.get("expected_matches", 1))
+                matches = original.count(old) if old else 0
+                if not old or expected < 1 or matches != expected:
+                    raise ValueError(f"Literal edit expected {expected} matches, found {matches}; read the actual file before editing")
+                path.write_text(original.replace(old, args["new_text"]), encoding="utf-8")
+                return {"path": str(path), "replacements": matches, "bytes": path.stat().st_size}
             if action in ("write", "append"):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 with path.open("a" if action == "append" else "w", encoding="utf-8") as out:
@@ -543,13 +559,7 @@ class Runtime:
                     raise ValueError("Job belongs to another team")
                 if action == "cancel":
                     return self.jobs.cancel(job["id"])
-                for name_ in ("stdout", "stderr"):
-                    log = Path(job["folder"]) / (name_ + ".log")
-                    if log.exists():
-                        with log.open("rb") as stream:
-                            stream.seek(max(0, log.stat().st_size - 16000))
-                            job[name_ + "_tail"] = stream.read().decode("utf-8", errors="replace")
-                return job
+                return self.job_view(job, tail_bytes=16000)
             if agent["role"] in MANAGERS:
                 raise ValueError("Managers cannot execute Python. Delegate to ML/data engineer or evaluator.")
             if "code" in args:
@@ -575,7 +585,23 @@ class Runtime:
                                        "team_revision": team["revision"] if team else None,
                                        "protocol_id": self.ledger.active()["id"] if self.ledger.active() else None,
                                        "purpose": args.get("purpose", "current assignment")})
-            return {"job_id": job["id"], "folder": job["folder"], "state": "queued",
+            inline_wait = min(30., max(0., float(args.get("wait_for_seconds", 10))),
+                              max(0., self.config.remaining - self.config.shutdown_seconds))
+            if inline_wait:
+                self.inline_jobs.add(job["id"])
+                try:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(self.jobs.tasks[job["id"]]), inline_wait)
+                    except asyncio.TimeoutError:
+                        pass
+                    current = self.store.get("job", job["id"])
+                    if current["state"] in TERMINAL:
+                        self.store.event("job_result_inline", {"job_id": job["id"], "agent": agent["id"]})
+                        return {**self.job_view(current), "completion_in_tool_result": True}
+                finally:
+                    self.inline_jobs.discard(job["id"])
+            current = self.store.get("job", job["id"])
+            return {"job_id": job["id"], "folder": job["folder"], "state": current["state"], "script": job["script"],
                     "stdout_path": str(Path(job["folder"]) / "stdout.log"), "stderr_path": str(Path(job["folder"]) / "stderr.log"),
                     "completion_wakes_owner": True, "next_action": "Continue other useful work or wait() for completion; avoid polling."}
         if name == "memory":

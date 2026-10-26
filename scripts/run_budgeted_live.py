@@ -70,8 +70,17 @@ class BudgetedClient(ModelClient):
 
 
 async def execute(args):
+    ledger_path = args.ledger.resolve() if args.ledger else None
+    ledger = None
+    if ledger_path:
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        committed = sum(float(r.get("accounted_rub", 0)) + float(r.get("reserved_rub", 0))
+                        for r in ledger["runs"].values())
+        args.budget = min(args.budget, ledger["limit_rub"] - committed)
+        if args.budget <= 0:
+            raise ValueError("The cumulative experiment budget has no uncommitted funds")
     config = Config(args.task, args.work_dir, seconds=args.seconds, cpus=8, ram_mb=8192,
-                    llm_concurrency=args.llm_concurrency, reasoning_effort="medium", request_timeout=240)
+                    llm_concurrency=args.llm_concurrency, reasoning_effort=args.reasoning_effort, request_timeout=300)
     if "routerai.ru" not in config.base_url:
         raise ValueError("This local bounded runner is specifically for the configured RouterAI API")
     async with httpx.AsyncClient(timeout=20) as http:
@@ -82,16 +91,21 @@ async def execute(args):
     if any(endpoint.get("pricing_units", {}).get(k) != "token" for k in ("prompt", "completion")) or endpoint.get("variable_pricings"):
         raise ValueError("Unsupported pricing structure: cannot reserve request cost safely")
     config.context_window = endpoint["context_length"]
-    config.request_extra = {"reasoning": {"effort": "medium"}, "provider": {"only": [endpoint["tag"]], "allow_fallbacks": False}}
+    config.request_extra = {"reasoning": {"effort": args.reasoning_effort}, "provider": {"only": [endpoint["tag"]], "allow_fallbacks": False}}
     client = BudgetedClient(config, endpoint, args.budget)
     runtime = Runtime(config, client)
     (config.work_dir / "provider-metadata.json").write_text(json.dumps(endpoint, ensure_ascii=False, indent=2), encoding="utf-8")
     def record_budget(record):
         runtime.store.put("budget", "current", record)
         atomic_write(config.work_dir / "BUDGET.json", json.dumps(record, indent=2))
+        if ledger is not None:
+            ledger["runs"][str(config.work_dir)] = {**record, "task": str(config.task_path)}
+            ledger["committed_rub"] = round(sum(float(r.get("accounted_rub", 0)) + float(r.get("reserved_rub", 0))
+                                                 for r in ledger["runs"].values()), 6)
+            atomic_write(ledger_path, json.dumps(ledger, indent=2))
     client.on_budget = record_budget
     client.record()
-    runtime.notify(runtime.root["id"], f"Observation run: {args.seconds / 60:g} minutes, medium reasoning, {args.budget:g} RUB maximum. Use the research opportunity after a safe checkpoint; a single slow job is a reason to adapt the portfolio, not stop the whole run. CPU/RAM are in state. Money admission is managed externally; do not change the model/provider.")
+    runtime.notify(runtime.root["id"], f"Observation run: {args.seconds / 60:g} minutes, {args.reasoning_effort} reasoning, {args.budget:g} RUB maximum. Use the research opportunity after a safe checkpoint; a single slow job is a reason to adapt the portfolio, not stop the whole run. CPU/RAM are in state. Money admission is managed externally; do not change the model/provider.")
     async def watch_budget():
         warned = False
         while not runtime.done and config.remaining > 0:
@@ -104,7 +118,7 @@ async def execute(args):
                 break
             await asyncio.sleep(.5)
     watcher = asyncio.create_task(watch_budget())
-    print(f"Live run started: {config.work_dir}; medium; {args.seconds}s; budget {args.budget} RUB; provider {endpoint['tag']}", flush=True)
+    print(f"Live run started: {config.work_dir}; {args.reasoning_effort}; {args.seconds}s; budget {args.budget} RUB; provider {endpoint['tag']}", flush=True)
     try:
         result = await runtime.run()
         print(json.dumps({"published": result, "accounted_rub": client.spent, "unused_seconds": config.remaining}), flush=True)
@@ -123,6 +137,8 @@ if __name__ == "__main__":
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--seconds", type=float, default=1500)
     parser.add_argument("--budget", type=float, default=150)
-    parser.add_argument("--llm-concurrency", type=int, default=4,
+    parser.add_argument("--reasoning-effort", choices=["low", "medium", "high"], default="high")
+    parser.add_argument("--ledger", type=Path, help="Cumulative experiment budget JSON; unknown reservations remain committed")
+    parser.add_argument("--llm-concurrency", type=int, default=6,
                         help="Concurrent API requests; uses the normal runtime default unless overridden")
     raise SystemExit(asyncio.run(execute(parser.parse_args())))

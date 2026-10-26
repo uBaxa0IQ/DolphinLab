@@ -54,8 +54,8 @@ def failure_kind(error):
         return Failure("configuration", False, True)
     status = getattr(error, "status_code", None)
     text = str(error).lower()
-    if status in (401, 403, 404) or any(s in text for s in (
-            "insufficient_quota", "budget exceeded", "invalid api key", "model_not_found")):
+    if status in (401, 402, 403, 404) or any(s in text for s in (
+            "insufficient_quota", "budget exceeded", "budget has been exceeded", "invalid api key", "model_not_found")):
         return Failure("credentials_or_budget", False, True)
     if status == 429:
         delay = 0.
@@ -152,8 +152,12 @@ class ModelClient:
 
     async def complete(self, messages, tools=None):
         ident = uid("request")
+        effort = self.config.compaction_reasoning_effort if request_purpose.get() == "compaction" else self.config.reasoning_effort
+        extra = dict(self.config.request_extra)
+        if "reasoning" in extra:
+            extra["reasoning"] = {**extra["reasoning"], "effort": effort}
         self.trace(ident, "queued", {"model": self.config.model, "messages": messages, "tools": tools or [],
-                                    "reasoning_effort": self.config.reasoning_effort})
+                                    "reasoning_effort": effort})
         while True:
             if self.disabled_reason:
                 raise APIUnavailable(self.disabled_reason)
@@ -175,8 +179,8 @@ class ModelClient:
             response = await asyncio.wait_for(self.client.chat.completions.create(
                 model=self.config.model, messages=messages,
                 **({"tools": tools, "parallel_tool_calls": False} if tools else {}),
-                **({"extra_body": self.config.request_extra} if self.config.request_extra else {}),
-                reasoning_effort=self.config.reasoning_effort),
+                **({"extra_body": extra} if extra else {}),
+                reasoning_effort=effort),
                 timeout=min(self.config.request_timeout, self.config.remaining))
             if getattr(self, "log_event", None):
                 self.trace(ident, "response", response.model_dump(exclude_none=True))

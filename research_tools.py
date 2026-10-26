@@ -18,7 +18,7 @@ def spec(name, description, properties, required=(), roles=None, route=None, fix
             "fixed": fixed or {}, "rename": rename or {}}
 
 
-JOB_OPTIONS = {"cpus": I, "ram_mb": I, "timeout": N,
+JOB_OPTIONS = {"cpus": I, "ram_mb": I, "timeout": N, "wait_for_seconds": N,
                "kind": {"enum": ["research", "evaluation", "finalization"]}}
 CATALOG = [
     spec("send_message", "Address a colleague. assignment updates a subordinate's visible focus. finding records a reusable reported conclusion. blocker immediately alerts both leads; attach candidate_id to block publication. References preserve evidence without copying code.",
@@ -32,9 +32,11 @@ CATALOG = [
          {"path": S, "content": S}, ["path", "content"], WORKERS, "files", {"action": "write"}),
     spec("append_file", "Append text/code in your workspace, e.g. to complete a long source file across calls.",
          {"path": S, "content": S}, ["path", "content"], WORKERS, "files", {"action": "append"}),
-    spec("run_python", "Run arbitrary Python in a managed process. Source is saved and snapshotted. JOB_DIR is private output storage; TASK_ROOT contains task data; RESEARCH_CPU is your thread budget. Returns job_id immediately; completion wakes you. Decide your own ML methods using the allowed stack.",
+    spec("replace_text", "Make a precise literal edit in your own source instead of rewriting a whole script. old_text must occur exactly expected_matches times (default 1). Read the source if it does not match. Useful for repairing a traceback and rerunning the same file.",
+         {"path": S, "old_text": S, "new_text": S, "expected_matches": I}, ["path", "old_text", "new_text"], WORKERS, "files", {"action": "replace"}),
+    spec("run_python", "Run arbitrary Python in a managed process. Source is saved and snapshotted. JOB_DIR is private output storage; TASK_ROOT contains task data; RESEARCH_CPU is your thread budget. Short jobs return their result/logs directly (wait_for_seconds defaults to 10, range 0..30); longer jobs return a real job_id and wake you on completion. Decide your own ML methods using the allowed stack.",
          {"code": S, "purpose": S, **JOB_OPTIONS}, ["code", "purpose"], WORKERS, "python_job", {"action": "run"}),
-    spec("run_script", "Run your saved .py file in a private managed job. No shell or special ML interface. The source is frozen; outputs belong in JOB_DIR.",
+    spec("run_script", "Run your saved .py file in a private managed job. Source is frozen; outputs belong in JOB_DIR. Short jobs return their result directly; wait_for_seconds (default 10, 0..30) controls only inline observation, not execution timeout. Fix small errors with replace_text and rerun this path.",
          {"path": S, "purpose": S, "args": STRINGS, **JOB_OPTIONS}, ["path", "purpose"], WORKERS, "python_job", {"action": "run"}),
     spec("job_status", "Read a real job_id returned by run_python/run_script, including its log tails. Wait for completion events rather than repeatedly polling.",
          {"job_id": S}, ["job_id"], route="python_job", fixed={"action": "status"}),
