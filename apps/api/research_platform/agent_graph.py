@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from .project_policy import context_message
 
 
 class AgentState(TypedDict, total=False):
@@ -18,6 +19,7 @@ class AgentState(TypedDict, total=False):
     response: dict[str, Any]
     summary: str
     waiting: bool
+    project_policy: dict[str, Any]
 
 
 ContextBuilder = Callable[[AgentState], Awaitable[list[dict]]]
@@ -30,7 +32,12 @@ def build_agent_graph(*, checkpointer, prepare: ContextBuilder, complete: ModelC
         raise ValueError("An explicit durable checkpointer is required for worker sessions")
 
     async def context(state: AgentState):
-        return {"context": await prepare(state)}
+        messages = await prepare(state)
+        if state.get("project_policy"):
+            # Worker supplies a frozen policy snapshot when creating a run.
+            # The future scheduler must independently enforce these ceilings.
+            messages = [*messages, context_message(state["project_policy"])]
+        return {"context": messages}
 
     async def model(state: AgentState):
         response = await complete(state)

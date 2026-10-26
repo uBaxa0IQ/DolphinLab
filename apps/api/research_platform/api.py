@@ -13,10 +13,12 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, SecretStr, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
-from .database import Base, DATA_ROOT, Directive, Event, InputFile, Message, Project, Session, WorkspaceSettings, engine
+from .database import Base, DATA_ROOT, Directive, Event, InputFile, Message, Project, ProjectPolicyRecord, Session, WorkspaceSettings, engine
+from .project_policy import ProjectPolicy
 from .secrets import encrypt_key
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
@@ -156,7 +158,7 @@ def message_view(message):
 def project_view(db, project):
     files = db.scalars(select(InputFile).where(InputFile.project_id == project.id).order_by(InputFile.created)).all()
     events = db.scalars(select(Event).where(Event.project_id == project.id).order_by(Event.seq.desc()).limit(30)).all()
-    titles = {"project_created": "Проект создан", "file_uploaded": "Добавлен файл", "message_saved": "Сообщение сохранено", "directive_received": "Получено поручение"}
+    titles = {"project_created": "Проект создан", "file_uploaded": "Добавлен файл", "message_saved": "Сообщение сохранено", "directive_received": "Получено поручение", "policy_updated": "Обновлены настройки проекта"}
     return {"id": project.id, "name": project.name, "description": project.description, "status": project.status,
             "demo": False, "teams": [], "experiments": [], "files": [file_view(f) for f in files],
             "events": [{"id": str(e.seq), "time": time_label(e.created), "title": titles.get(e.kind, e.kind),
@@ -189,6 +191,36 @@ def create_project(body: CreateProject):
 def get_project(project_id: str):
     with Session() as db:
         return project_view(db, require_project(db, project_id))
+
+
+@app.get("/api/projects/{project_id}/settings")
+def get_project_settings(project_id: str):
+    with Session() as db:
+        require_project(db, project_id)
+        record = db.get(ProjectPolicyRecord, project_id)
+        return ProjectPolicy(revision=record.revision, **record.policy) if record else ProjectPolicy()
+
+
+@app.put("/api/projects/{project_id}/settings")
+def update_project_settings(project_id: str, body: ProjectPolicy):
+    payload = body.model_dump(exclude={"revision"})
+    next_revision = body.revision + 1
+    try:
+        with Session.begin() as db:
+            require_project(db, project_id)
+            if body.revision == 0:
+                db.add(ProjectPolicyRecord(project_id=project_id, revision=next_revision, policy=payload))
+                db.flush()
+            else:
+                changed = db.execute(update(ProjectPolicyRecord).where(
+                    ProjectPolicyRecord.project_id == project_id,
+                    ProjectPolicyRecord.revision == body.revision).values(revision=next_revision, policy=payload))
+                if changed.rowcount != 1:
+                    raise HTTPException(409, "Настройки изменены в другом окне. Открой их заново.")
+            db.add(Event(project_id=project_id, kind="policy_updated", payload={"revision": next_revision}))
+    except IntegrityError:
+        raise HTTPException(409, "Настройки изменены в другом окне. Открой их заново.") from None
+    return ProjectPolicy(revision=next_revision, **payload)
 
 
 @app.get("/api/projects/{project_id}/messages")

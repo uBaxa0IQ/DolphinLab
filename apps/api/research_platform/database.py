@@ -97,3 +97,10 @@ class WorkspaceSettings(Base):
     base_url: Mapped[str] = mapped_column(String(1000), default="")
     model: Mapped[str] = mapped_column(String(200), default="")
     encrypted_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ProjectPolicyRecord(Base):
+    __tablename__ = "project_policies"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    policy: Mapped[dict] = mapped_column(JSON)

@@ -51,6 +51,7 @@ import type {
 } from "./types";
 import SettingsPanel from "./SettingsPanel";
 import ProjectsDirectory from "./ProjectsDirectory";
+import ProjectSettingsPanel from "./ProjectSettingsPanel";
 
 type Tab = "overview" | "teams" | "experiments" | "files";
 const tabs: { id: Tab; label: string }[] = [
@@ -408,6 +409,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>(demoProjects);
   const [directory, setDirectory] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<WorkspaceSettings>({
     display_name: "Исследователь",
     base_url: "",
@@ -818,22 +820,32 @@ export default function App() {
                       "Добавь описание задачи и исходные данные."}
                   </p>
                 </div>
-                <Badge
-                  tone={
-                    project.status === "running"
-                      ? "green"
+                <div className="project-heading-actions">
+                  <button
+                    className="project-settings-button"
+                    onClick={() => setProjectSettingsOpen(true)}
+                    title="Настройки проекта"
+                  >
+                    <Settings2 size={14} />
+                    <span>Настроить</span>
+                  </button>
+                  <Badge
+                    tone={
+                      project.status === "running"
+                        ? "green"
+                        : project.status === "completed"
+                          ? "neutral"
+                          : "amber"
+                    }
+                  >
+                    <span className={`tiny-dot ${project.status}`} />
+                    {project.status === "running"
+                      ? "В работе"
                       : project.status === "completed"
-                        ? "neutral"
-                        : "amber"
-                  }
-                >
-                  <span className={`tiny-dot ${project.status}`} />
-                  {project.status === "running"
-                    ? "В работе"
-                    : project.status === "completed"
-                      ? "Завершён"
-                      : "Черновик"}
-                </Badge>
+                        ? "Завершён"
+                        : "Черновик"}
+                  </Badge>
+                </div>
               </div>
               <div className="tabs" role="tablist" aria-label="Разделы проекта">
                 {tabs.map((t) => (
@@ -1393,6 +1405,26 @@ export default function App() {
         </div>
       </aside>
 
+      {projectSettingsOpen && (
+        <Modal
+          close={() => setProjectSettingsOpen(false)}
+          label="Настройки проекта"
+          wide
+        >
+          <ProjectSettingsPanel
+            project={project}
+            close={() => setProjectSettingsOpen(false)}
+            saved={() => {
+              setProjectSettingsOpen(false);
+              setNotice(
+                project.demo
+                  ? "Настройки демопроекта сохранены"
+                  : "Настройки проекта сохранены для следующего запуска",
+              );
+            }}
+          />
+        </Modal>
+      )}
       {settingsOpen && (
         <Modal
           close={() => setSettingsOpen(false)}

@@ -1,3 +1,18 @@
+export type ProjectPolicy = {
+  revision: number;
+  strategy: {
+    exploration: "focused" | "balanced" | "exploratory";
+    guidance: string;
+  };
+  limits: {
+    max_teams: number;
+    parallel_jobs: number;
+    parallel_model_calls: number;
+    cpu_total: number;
+    ram_gb: number;
+    duration_minutes: number;
+  };
+};
 export type WorkspaceSettings = {
   display_name: string;
   base_url: string;

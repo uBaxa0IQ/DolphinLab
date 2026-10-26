@@ -2716,6 +2716,237 @@ h1 {
     font-size: 11px;
   }
 }
+.project-heading-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+  flex-shrink: 0;
+}
+.project-settings-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid #e7e0d2;
+  border-radius: 5px;
+  font-size: 9px;
+  color: #a7997e;
+  background: #f8f6ef;
+}
+.project-settings-button:hover {
+  border-color: #bdc5a9;
+  color: #788365;
+  background: #eff0e6;
+}
+.policy-strategy,
+.policy-limits {
+  padding-top: 24px;
+}
+.policy-section-title h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8f8064;
+}
+.policy-section-title p {
+  font-size: 10px;
+  line-height: 1.9;
+  color: #b5a587;
+  margin-top: 6px;
+  margin-bottom: 17px;
+}
+.exploration-options {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 24px;
+}
+.exploration-option {
+  display: flex;
+  text-align: left;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e8e0d1;
+  border-radius: 8px;
+  background: #fbf9f3;
+  padding: 14px;
+}
+.exploration-option.active {
+  border-color: #b7c1a2;
+  background: #eff2e7;
+}
+.exploration-option:hover:not(.active) {
+  background: #f4f1e8;
+  border-color: #d6ceb9;
+}
+.exploration-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: #b7aa8e;
+  background: #f0ecdf;
+  flex-shrink: 0;
+}
+.exploration-option.active .exploration-icon {
+  color: #8b9a70;
+  background: #e2e9d5;
+}
+.exploration-option > span:nth-child(2) {
+  flex: 1;
+}
+.exploration-option strong {
+  display: block;
+  font-size: 11px;
+  color: #948466;
+  font-weight: 600;
+}
+.exploration-option.active strong {
+  color: #74815b;
+}
+.exploration-option small {
+  display: block;
+  font-size: 9px;
+  line-height: 1.8;
+  color: #b0a184;
+  margin-top: 5px;
+}
+.exploration-radio {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  border: 1px solid #d6cebb;
+  color: #fffefa;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.exploration-option.active .exploration-radio {
+  background: #8a9a70;
+  border-color: #8a9a70;
+}
+.policy-effective {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  color: #b5a78e;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #eae3d6;
+}
+.policy-limit-fields {
+  display: flex;
+  flex-direction: column;
+}
+.policy-limit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 14px 0;
+  border-bottom: 1px solid #ede6da;
+}
+.policy-limit-row:first-child {
+  padding-top: 1px;
+}
+.policy-limit-row:last-child {
+  border-bottom: 0;
+}
+.policy-limit-row > span:first-child {
+  flex: 1;
+}
+.policy-limit-row strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #95866a;
+  line-height: 1.7;
+}
+.policy-limit-row small {
+  display: block;
+  font-size: 9px;
+  color: #bcac8d;
+  line-height: 1.8;
+  margin-top: 4px;
+}
+.policy-number {
+  display: flex;
+  align-items: center;
+  border: 1px solid #e3dac7;
+  border-radius: 6px;
+  background: #fffdf7;
+  padding-right: 10px;
+  width: 114px;
+  flex-shrink: 0;
+}
+.policy-number input {
+  width: 65px;
+  min-width: 0;
+  appearance: textfield;
+  border: 0;
+  background: none;
+  padding: 9px 7px 9px 10px;
+  color: #897b60;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 6px 0 0 6px;
+}
+.policy-number > span {
+  font-size: 8px;
+  color: #baaa8c;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.policy-strategy[hidden],
+.policy-limits[hidden] {
+  display: none;
+}
+@media (max-width: 700px) {
+  .project-heading-actions {
+    margin-top: 13px;
+    gap: 10px;
+  }
+  .project-settings-button {
+    font-size: 8px;
+    padding: 6px;
+  }
+  .policy-limit-row {
+    gap: 12px;
+  }
+  .policy-limit-row strong {
+    font-size: 10px;
+  }
+  .policy-limit-row small {
+    font-size: 8px;
+  }
+  .policy-number {
+    width: 96px;
+    padding-right: 7px;
+  }
+  .policy-number input {
+    width: 52px;
+    font-size: 11px;
+  }
+  .policy-number > span {
+    font-size: 7px;
+  }
+  .exploration-option {
+    padding: 12px 10px;
+    gap: 9px;
+  }
+  .exploration-option small {
+    font-size: 8px;
+  }
+  .exploration-option strong {
+    font-size: 10px;
+  }
+  .policy-section-title p {
+    font-size: 9px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,
