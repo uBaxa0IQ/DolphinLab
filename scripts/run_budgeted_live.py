@@ -30,6 +30,7 @@ class BudgetedClient(ModelClient):
         super().__init__(config)
         self.endpoint, self.budget = endpoint, budget
         self.spent = self.reserved = 0.
+        self.pending_requests = 0
         self.exhausted = False
         self.admission = asyncio.Semaphore(config.llm_concurrency)
         self.on_budget = None
@@ -47,15 +48,14 @@ class BudgetedClient(ModelClient):
 
     async def complete(self, messages, tools=None):
         async with self.admission:
-            if self.exhausted or self.spent + self.reserved + self.reservation > self.budget:
-                # Let existing reservations settle before deciding there is no room.
-                while self.reserved and not self.exhausted:
-                    await asyncio.sleep(.1)
-                if self.spent + self.reservation > self.budget:
+            while self.exhausted or self.spent + self.reserved + self.reservation > self.budget:
+                if not getattr(self, "pending_requests", 0):
                     self.exhausted = True
                     self.record()
                     raise APIUnavailable("Local RUB budget: insufficient headroom for another full provider response")
-            self.reserved += self.reservation
+                await asyncio.sleep(.1)
+            self.pending_requests = getattr(self, "pending_requests", 0) + 1
+            self.reserved = self.pending_requests * self.reservation
             self.record()
             usage = None
             try:
@@ -80,22 +80,32 @@ class BudgetedClient(ModelClient):
                 # Unknown interrupted requests consume their complete reservation conservatively.
                 cost = usage.get("cost") if usage else None
                 self.spent += float(cost) if cost is not None else self.reservation
-                self.reserved -= self.reservation
+                self.pending_requests -= 1
+                self.reserved = self.pending_requests * self.reservation
                 self.record()
 
 
 async def execute(args):
     ledger_path = args.ledger.resolve() if args.ledger else None
     ledger = None
+    previous_spend = 0.
     if ledger_path:
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-        committed = sum(float(r.get("accounted_rub", 0)) + float(r.get("reserved_rub", 0))
-                        for r in ledger["runs"].values())
+        current_key = str(args.work_dir.resolve())
+        previous = ledger["runs"].get(current_key)
+        if args.resume and not previous:
+            raise ValueError("Cannot resume without the existing financial ledger entry")
+        if args.resume:
+            previous_spend = float(previous.get("accounted_rub", 0)) + max(0., float(previous.get("reserved_rub", 0)))
+        committed = sum(float(r.get("accounted_rub", 0)) + max(0., float(r.get("reserved_rub", 0)))
+                        for key, r in ledger["runs"].items() if not (args.resume and key == current_key))
         args.budget = min(args.budget, ledger["limit_rub"] - committed)
-        if args.budget <= 0:
+        if args.budget <= previous_spend:
             raise ValueError("The cumulative experiment budget has no uncommitted funds")
+    elif args.resume:
+        raise ValueError("Budgeted resume requires the cumulative ledger")
     config = Config(args.task, args.work_dir, seconds=args.seconds, cpus=8, ram_mb=8192,
-                    llm_concurrency=args.llm_concurrency, reasoning_effort=args.reasoning_effort, request_timeout=300)
+                    llm_concurrency=args.llm_concurrency, reasoning_effort=args.reasoning_effort, request_timeout=300, resume=args.resume)
     if "routerai.ru" not in config.base_url:
         raise ValueError("This local bounded runner is specifically for the configured RouterAI API")
     async with httpx.AsyncClient(timeout=20) as http:
@@ -108,6 +118,7 @@ async def execute(args):
     config.context_window = endpoint["context_length"]
     config.request_extra = {"reasoning": {"effort": args.reasoning_effort}, "provider": {"only": [endpoint["tag"]], "allow_fallbacks": False}}
     client = BudgetedClient(config, endpoint, args.budget)
+    client.spent = previous_spend
     runtime = Runtime(config, client)
     (config.work_dir / "provider-metadata.json").write_text(json.dumps(endpoint, ensure_ascii=False, indent=2), encoding="utf-8")
     def record_budget(record):
@@ -155,6 +166,7 @@ if __name__ == "__main__":
     parser.add_argument("--reasoning-effort", choices=["low", "medium", "high"], default="high")
     parser.add_argument("--ledger", type=Path, help="Cumulative experiment budget JSON; unknown reservations remain committed")
     parser.add_argument("--provider", help="Optional provider pin; otherwise choose an active inexpensive eligible route")
+    parser.add_argument("--resume", action="store_true", help="Preserve original deadline, agent history, jobs and accounted spend")
     parser.add_argument("--llm-concurrency", type=int, default=6,
                         help="Concurrent API requests; uses the normal runtime default unless overridden")
     raise SystemExit(asyncio.run(execute(parser.parse_args())))

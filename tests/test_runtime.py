@@ -683,11 +683,11 @@ asyncio.run(main())
         from scripts.run_budgeted_live import BudgetedClient
         from research_llm import ModelClient
         client = BudgetedClient.__new__(BudgetedClient)
-        client.budget = 20
-        client.spent = client.reserved = 0.
-        client.reservation = 6
+        client.budget = 140
+        client.spent, client.reserved = 100., 0.
+        client.reservation = 13.095341457735682
         client.exhausted = False
-        client.admission = asyncio.Semaphore(2)
+        client.admission = asyncio.Semaphore(6)
         client.on_budget = None
         peak = 0
         async def respond(*args, **kwargs):
@@ -696,9 +696,10 @@ asyncio.run(main())
             await asyncio.sleep(.02)
             return {"role": "assistant", "content": "ok"}, {"cost": 2}
         with patch.object(ModelClient, "complete", respond):
-            await asyncio.gather(*(client.complete([]) for _ in range(4)))
-        self.assertLessEqual(peak, 20)
-        self.assertEqual(client.spent, 8)
+            await asyncio.wait_for(asyncio.gather(*(client.complete([]) for _ in range(8))), 3)
+        self.assertLessEqual(peak, 140)
+        self.assertEqual(client.spent, 116)
+        self.assertEqual(client.pending_requests, 0)
         self.assertEqual(client.reserved, 0)
 
 
