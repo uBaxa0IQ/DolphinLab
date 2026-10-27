@@ -136,6 +136,22 @@ export default function ChatPanel({
               </span>
             )}
             <div className="message-body">{message.content}</div>
+            {message.role === "user" &&
+              message.requested_intent === "auto" &&
+              message.intent &&
+              message.intent !== "auto" && (
+                <div className="pending-message" title={message.intent_reason}>
+                  PM определил:{" "}
+                  {
+                    {
+                      question: "вопрос по данным",
+                      instruction: "поручение",
+                      followup: "следующая итерация",
+                      clarification: "нужно уточнение",
+                    }[message.intent]
+                  }
+                </div>
+              )}
             {message.role === "user" && (
               <div className="message-time">
                 {message.time}
@@ -202,16 +218,19 @@ export default function ChatPanel({
               aria-label="Режим сообщения"
               disabled={sending}
             >
+              <option value="auto">Автоматически</option>
               <option value="question">Вопрос по данным</option>
               <option value="instruction">Поручение текущему запуску</option>
               <option value="followup">Следующая итерация</option>
             </select>
             <small>
-              {intent === "question"
-                ? "Ответ или небольшой расчёт без запуска исследования."
-                : intent === "followup"
-                  ? "PM уточнит цель и подготовит итерацию. Запуск — отдельно."
-                  : "Поручение адресуется текущему запуску и не переносится в следующий."}
+              {intent === "auto"
+                ? "PM определит намерение по диалогу и уточнит, если нужно. Исследование запускается отдельно."
+                : intent === "question"
+                  ? "Ответ или небольшой расчёт без запуска исследования."
+                  : intent === "followup"
+                    ? "PM уточнит цель и подготовит итерацию. Запуск — отдельно."
+                    : "Поручение адресуется текущему запуску и не переносится в следующий."}
             </small>
           </label>
         )}
@@ -266,7 +285,9 @@ export default function ChatPanel({
                 ? "Что нужно изменить в работе?"
                 : intent === "followup"
                   ? "Что проверить в следующей итерации?"
-                  : "Задай вопрос по данным…"
+                  : intent === "auto"
+                    ? "Задай вопрос или расскажи, что хочешь проверить…"
+                    : "Задай вопрос по данным…"
             }
             rows={2}
             maxLength={20000}

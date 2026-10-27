@@ -81,11 +81,13 @@ export type ChatMessage = {
   error?: string;
   directive_status?: string;
   directive_decision?: string;
-  intent?: ChatIntent;
+  intent?: ChatIntent | "clarification";
+  requested_intent?: ChatIntent;
+  intent_reason?: string;
   reply_to_id?: string | null;
   evidence?: PMEvidence[];
 };
-export type ChatIntent = "question" | "instruction" | "followup";
+export type ChatIntent = "auto" | "question" | "instruction" | "followup";
 export type PMEvidence = {
   id: string;
   kind: string;

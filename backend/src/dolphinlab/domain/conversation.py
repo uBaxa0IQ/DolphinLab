@@ -8,6 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from dolphinlab.domain.research import GoalSpec
 
 
+class MessageRoute(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    intent: Literal["question", "instruction", "followup", "clarification"]
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class FilterSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     column: str = Field(min_length=1, max_length=200)

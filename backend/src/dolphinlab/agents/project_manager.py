@@ -5,7 +5,7 @@ import os
 
 from sqlalchemy import select
 
-from dolphinlab.agents.pm_session import PMContextError, PMConversation
+from dolphinlab.agents.pm_session import PMContextError, PMConversation, PMIntentError
 from dolphinlab.infrastructure.connections import model_settings
 from dolphinlab.infrastructure.conversation_usage import ConversationBudgetError
 from dolphinlab.infrastructure.database import Event, Message, Project, Session
@@ -79,7 +79,9 @@ class ProjectManager:
                         item.status, item.error = (
                             "failed",
                             str(error)
-                            if isinstance(error, (ConversationBudgetError, PMContextError))
+                            if isinstance(
+                                error, (ConversationBudgetError, PMContextError, PMIntentError)
+                            )
                             else "Ответ PM прерван. Можно повторить обработку сообщения.",
                         )
                         db.add(

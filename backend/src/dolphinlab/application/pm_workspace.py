@@ -13,6 +13,7 @@ from dolphinlab.domain.conversation import (
     DataQuestion,
     FollowupSpec,
     MemoryNote,
+    MessageRoute,
     ResearchInstruction,
 )
 from dolphinlab.domain.research import GoalSpec
@@ -48,6 +49,7 @@ class PMWorkspace(Service):
             )
             if project.archived:
                 raise ValueError("Project is archived")
+            db.refresh(source)
             existing = db.get(PMAction, ident)
             if existing:
                 if existing.arguments != arguments:
@@ -82,6 +84,33 @@ class PMWorkspace(Service):
 
     def _perform(self, db, source, project, name, arguments, action_id):
         binding = source.context_binding or {}
+        if name == "route_message":
+            route = MessageRoute.model_validate(arguments)
+            if binding.get("requested_intent", source.intent) != "auto" or source.intent != "auto":
+                raise ValueError("Режим уже определён или задан пользователем")
+            if route.intent == "instruction":
+                run = db.scalar(
+                    select(Run).where(Run.id == binding.get("run_id"), Run.project_id == project.id)
+                )
+                if not run or run.status in TERMINAL:
+                    raise ValueError(
+                        "Нет активного адресата: уточни намерение или предложи продолжение"
+                    )
+                db.add(
+                    Directive(
+                        id=action_id,
+                        project_id=project.id,
+                        message_id=source.id,
+                        content=source.content,
+                        state="awaiting_pm",
+                        run_id=run.id,
+                        iteration_id=run.iteration_id,
+                    )
+                )
+            source.intent = route.intent
+            source.directive = route.intent == "instruction"
+            source.context_binding = {**binding, "intent_reason": route.reason}
+            return {"intent": route.intent, "reason": route.reason, "run_started": False}
         if name == "query_data":
             query = DataQuestion.model_validate(arguments)
             count = db.scalar(
@@ -235,7 +264,7 @@ class PMWorkspace(Service):
         if name == "prepare_followup":
             if source.intent != "followup":
                 raise ValueError(
-                    "Вопрос не создаёт итерацию. Для продолжения нужен режим «Следующая итерация»"
+                    "Продолжение требует определённого намерения followup; вопрос не создаёт итерацию"
                 )
             followup = FollowupSpec.model_validate(arguments)
             current, previous = latest_goal(db, project.id), latest_iteration(db, project.id)
@@ -266,7 +295,7 @@ class PMWorkspace(Service):
             }
         if name == "send_to_tech_lead":
             if source.intent != "instruction":
-                raise ValueError("Обычный вопрос не меняет работу команд; нужен режим поручения")
+                raise ValueError("Поручение требует определённого намерения instruction")
             instruction = ResearchInstruction.model_validate(arguments)
             run = db.scalar(
                 select(Run).where(Run.id == binding.get("run_id"), Run.project_id == project.id)

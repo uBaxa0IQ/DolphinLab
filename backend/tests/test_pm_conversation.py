@@ -16,7 +16,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy import func, select
 
 from dolphinlab.agents.engine import PlatformRuntime
-from dolphinlab.agents.pm_session import PMContextError
+from dolphinlab.agents.pm_session import PMContextError, PMIntentError
 from dolphinlab.agents.project_manager import ProjectManager
 from dolphinlab.api.schemas import ControlRun, CreateMessage, CreateProject
 from dolphinlab.application.knowledge import KnowledgeService
@@ -203,6 +203,180 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(self.count(Run), 0)
         self.assertEqual(self.count(ResearchIteration), 0)
         self.assertEqual(self.count(GoalRevision), 1)
+
+    def test_auto_is_default_and_retry_keeps_original_request_after_routing(self):
+        body = CreateMessage(content="Какова сумма?", client_id=uuid4())
+        source = self.messages.save_message(self.pid, body)
+        self.assertEqual(source["intent"], "auto")
+        args = {"intent": "question", "reason": "Пользователь просит сумму по таблице"}
+        result = self.workspace.dispatch(source["id"], "route_message", args)
+        self.assertEqual(self.workspace.dispatch(source["id"], "route_message", args), result)
+        retried = self.messages.save_message(self.pid, body)
+        self.assertEqual(retried["intent"], "question")
+        self.assertEqual(retried["requested_intent"], "auto")
+        self.assertEqual(retried["intent_reason"], args["reason"])
+        changed = self.workspace.dispatch(
+            source["id"],
+            "route_message",
+            {
+                "intent": "followup",
+                "reason": "Передумал",
+            },
+        )
+        self.assertIn("error", changed)
+        self.assertEqual(self.count(ResearchIteration), 0)
+
+    def test_auto_question_model_turn_calculates_without_research(self):
+        self.configure()
+        source = self.message(intent="auto")
+        factory = self.handle(
+            source,
+            [
+                tool("route_message", {"intent": "question", "reason": "Нужен расчёт"}),
+                tool(
+                    "query_data",
+                    {
+                        "input_id": self.input_id,
+                        "operation": "aggregate",
+                        "metric": "sum",
+                        "column": "amount",
+                    },
+                    "query",
+                ),
+                {"role": "assistant", "content": "Сумма — 330000."},
+            ],
+        )
+        self.assertEqual(len(factory.client.calls), 3)
+        facts = json.loads(factory.client.calls[-1][1]["content"].split("\n", 1)[1])
+        self.assertEqual(facts["source_message"]["intent"], "question")
+        self.assertEqual(self.count(Run), 0)
+        self.assertEqual(self.count(ResearchIteration), 0)
+        self.assertEqual(self.count(Directive), 0)
+
+    def test_auto_clarifies_and_next_message_can_prepare_followup(self):
+        self.configure()
+        saver = MemorySaver()
+        source = self.message("А можно проверить иначе?", "auto")
+        self.handle(
+            source,
+            [
+                tool(
+                    "route_message", {"intent": "clarification", "reason": "Неясен объём проверки"}
+                ),
+                {"role": "assistant", "content": "Подготовить новую итерацию с проверкой скидок?"},
+            ],
+            saver,
+        )
+        self.assertEqual(self.count(ResearchIteration), 0)
+        self.assertIn(
+            "error",
+            self.workspace.dispatch(
+                source.id,
+                "prepare_followup",
+                {
+                    "goal": {"question": "Discounts"},
+                },
+            ),
+        )
+        reply = self.message("Да, подготовь", "auto")
+        factory = self.handle(
+            reply,
+            [
+                tool(
+                    "route_message",
+                    {"intent": "followup", "reason": "Подтвердил предложенную проверку"},
+                ),
+                tool(
+                    "prepare_followup",
+                    {"goal": {"question": "Проверить влияние скидок"}},
+                    "prepare",
+                ),
+                {"role": "assistant", "content": "Итерация подготовлена."},
+            ],
+            saver,
+        )
+        self.assertTrue(
+            any(
+                "Подготовить новую итерацию" in (item.get("content") or "")
+                for item in factory.client.calls[0]
+            )
+        )
+        self.assertEqual(self.count(ResearchIteration), 1)
+        self.assertEqual(self.count(Run), 0)
+
+    def test_auto_instruction_targets_only_pinned_run(self):
+        self.configure()
+        first = self.start()
+        source = self.message("Исключи amount из текущего обучения", "auto")
+        self.workspace.dispatch(
+            source.id,
+            "route_message",
+            {
+                "intent": "instruction",
+                "reason": "Изменение текущего запуска",
+            },
+        )
+        result = self.workspace.dispatch(
+            source.id, "send_to_tech_lead", {"instruction": source.content}
+        )
+        self.assertEqual(result["run_id"], first["id"])
+        self.runs.control_run(self.pid, first["id"], ControlRun(action="stop"))
+        second = self.start()
+        late = self.message("Сравни другой алгоритм", "auto")
+        self.runs.control_run(self.pid, second["id"], ControlRun(action="stop"))
+        self.start()
+        failed = self.workspace.dispatch(
+            late.id,
+            "route_message",
+            {
+                "intent": "instruction",
+                "reason": "Изменение завершившегося запуска",
+            },
+        )
+        self.assertIn("error", failed)
+        clarified = self.workspace.dispatch(
+            late.id,
+            "route_message",
+            {
+                "intent": "clarification",
+                "reason": "Адресат завершился, уточняем продолжение",
+            },
+        )
+        self.assertEqual(clarified["intent"], "clarification")
+        self.assertEqual(self.count(Directive), 1)
+
+    def test_manual_modes_cannot_be_rerouted_and_auto_does_not_invent_run(self):
+        for intent in ("question", "instruction", "followup"):
+            source = self.message(intent=intent)
+            result = self.workspace.dispatch(
+                source.id,
+                "route_message",
+                {
+                    "intent": "followup",
+                    "reason": "Переопределить выбор пользователя",
+                },
+            )
+            self.assertIn("error", result)
+        source = self.message("Измени текущий запуск", "auto")
+        result = self.workspace.dispatch(
+            source.id,
+            "route_message",
+            {
+                "intent": "instruction",
+                "reason": "Хочет изменить текущий запуск",
+            },
+        )
+        self.assertIn("error", result)
+        self.assertEqual(self.count(Run), 0)
+        self.assertEqual(self.count(ResearchIteration), 0)
+
+    def test_auto_requires_routing_before_final_model_answer(self):
+        self.configure()
+        source = self.message(intent="auto")
+        with self.assertRaises(PMIntentError):
+            self.handle(source, [{"role": "assistant", "content": "Произвольный ответ"}])
+        self.assertEqual(self.count(Message), 1)
+        self.assertEqual(self.count(Run), 0)
 
     def test_question_cannot_create_iteration_or_directive(self):
         source = self.message("Подготовь полное исследование")

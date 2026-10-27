@@ -45,6 +45,8 @@ def message_view(message):
         "status": message.status,
         "error": message.error,
         "intent": message.intent,
+        "requested_intent": (message.context_binding or {}).get("requested_intent", message.intent),
+        "intent_reason": (message.context_binding or {}).get("intent_reason"),
         "reply_to_id": message.reply_to_id,
     }
 

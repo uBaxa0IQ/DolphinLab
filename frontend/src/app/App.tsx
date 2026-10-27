@@ -102,10 +102,10 @@ export default function App() {
   const [demoChats, setDemoChats] = useState(readDemoChat);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [chatIntent, setChatIntent] = useState<ChatIntent>("question");
+  const [chatIntent, setChatIntent] = useState<ChatIntent>("auto");
   const directive = chatIntent === "instruction";
   function setDirective(value: boolean) {
-    setChatIntent(value ? "instruction" : "question");
+    setChatIntent(value ? "instruction" : "auto");
   }
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);

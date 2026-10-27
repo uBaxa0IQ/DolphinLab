@@ -76,7 +76,8 @@ class MessageService(Service):
                 if (
                     existing.project_id != project_id
                     or existing.content != body.content
-                    or existing.intent != intent
+                    or (existing.context_binding or {}).get("requested_intent", existing.intent)
+                    != intent
                 ):
                     raise HTTPException(409, "ID сообщения уже использован для другого содержимого")
                 return message_view(existing)
@@ -87,7 +88,7 @@ class MessageService(Service):
                 content=body.content,
                 directive=body.directive,
                 intent=intent,
-                context_binding=bind_message(db, project_id),
+                context_binding={**bind_message(db, project_id), "requested_intent": intent},
             )
             message.directive = intent == "instruction"
             db.add(message)
@@ -111,7 +112,7 @@ class MessageService(Service):
             db.add(
                 Event(
                     project_id=project_id,
-                    kind="directive_received" if body.directive else "message_saved",
+                    kind="directive_received" if message.directive else "message_saved",
                     payload={"message_id": message.id},
                 )
             )
