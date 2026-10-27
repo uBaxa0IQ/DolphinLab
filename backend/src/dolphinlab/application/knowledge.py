@@ -52,7 +52,7 @@ def bind_message(db, project_id):
     run_input_ids = [item["id"] for item in run.inputs if item.get("id")] if run else []
     return {
         "schema_version": 1,
-        "documents": document_index(db, project_id),
+        "documents": document_index(db, project_id, include_pending=True),
         "goal_revision_id": goal.id if goal else None,
         "goal_revision": goal.revision if goal else 0,
         "iteration_id": active.iteration_id if active else (iteration.id if iteration else None),

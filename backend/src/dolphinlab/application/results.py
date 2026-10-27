@@ -14,6 +14,7 @@ from dolphinlab.infrastructure.store import PostgresStore
 from dolphinlab.research.results import ResultRegistry
 
 from .base import Service
+from .document_context import run_source_freshness
 
 
 class ResultsService(Service):
@@ -71,6 +72,7 @@ class ResultsService(Service):
             applicable = all(
                 current.get(f["name"]) == (f["id"], f["sha256"]) for f in result["input_versions"]
             )
+            freshness = run_source_freshness(db, db.get(Run, run_id))
             evidence_files = []
             assessment = registry.latest_assessment(result_id)
             for label, job_id in (
@@ -93,7 +95,8 @@ class ResultsService(Service):
             return {
                 **result,
                 "status": status,
-                "applicable": applicable,
+                "applicable": applicable and freshness["current"],
+                "source_freshness": freshness,
                 "artifact": {k: artifact[k] for k in ("id", "sha256", "size", "job_id")},
                 "assessment": assessment,
                 "evidence_files": evidence_files,

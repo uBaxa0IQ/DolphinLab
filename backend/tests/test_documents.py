@@ -28,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from dolphinlab.agents.engine import PlatformRuntime
 from dolphinlab.agents.session import ResearchSession
 from dolphinlab.api.schemas import CreateGoal, CreateMessage, CreateProject
+from dolphinlab.application.document_context import run_source_freshness
 from dolphinlab.application.documents import DocumentService, original_path, parse_isolated
 from dolphinlab.application.knowledge import KnowledgeService
 from dolphinlab.application.messages import MessageService
@@ -640,3 +641,51 @@ class DocumentStorageTest(unittest.TestCase):
         with Session() as db:
             manifest = db.get(ContextManifest, context["context_manifest_id"])
             self.assertEqual(len(manifest.snapshot["source_message"]["binding"]["documents"]), 21)
+
+    def test_message_pins_queued_upload_then_can_read_same_version_when_ready(self):
+        version = self.upload()
+        saved = MessageService().save_message(
+            self.pid, CreateMessage(content="Как методика определяет выручку?", intent="question")
+        )
+        context = KnowledgeService().context(saved["id"])
+        self.assertEqual(context["documents"][0]["state"], "queued")
+        self.assertEqual(context["documents"][0]["version_id"], version["id"])
+        self.docs.process_next(parse_document)
+        result = PMWorkspace().dispatch(
+            saved["id"], "search_knowledge", {"query": "возврат", "kind": "documents"}
+        )
+        self.assertEqual(result["results"][0]["version_id"], version["id"])
+
+    def test_document_replacement_changes_applicability_without_rewriting_run(self):
+        version = self.ready()
+        source = self.search("возврат")[0]
+        goal = GoalSpec(
+            question="Use method v1",
+            document_sources=[
+                {
+                    "version_id": source["version_id"],
+                    "chunk_id": source["chunk_id"],
+                    "sha256": source["sha256"],
+                    "reason": "Definition",
+                }
+            ],
+        )
+        self.research.create_goal(
+            self.pid, CreateGoal(client_id=uuid4(), expected_revision=1, goal=goal)
+        )
+        self.seed_inputs()
+        started = self.start()
+        with Session() as db:
+            run = db.get(Run, started["id"])
+            frozen = run.goal_snapshot
+            self.assertTrue(run_source_freshness(db, run)["current"])
+        self.ready(
+            content="# Новая методика\n\nВыручка без НДС неизвестна без vat_amount.",
+            previous=version,
+        )
+        with Session() as db:
+            run = db.get(Run, started["id"])
+            self.assertEqual(
+                run_source_freshness(db, run)["stale_document_version_ids"], [version["id"]]
+            )
+            self.assertEqual(run.goal_snapshot, frozen)

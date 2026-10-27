@@ -3,17 +3,19 @@
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from dolphinlab.infrastructure.database import Document, DocumentVersion
+from dolphinlab.infrastructure.database import Document, DocumentVersion, ResearchObject
 
 
-def document_index(db, project_id):
+def document_index(db, project_id, *, include_pending=False):
     rows = db.execute(
         select(DocumentVersion, Document)
         .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             Document.project_id == project_id,
             Document.deleted.is_(False),
-            DocumentVersion.state == "ready",
+            DocumentVersion.state.in_(["queued", "processing", "ready", "failed"])
+            if include_pending
+            else DocumentVersion.state == "ready",
         )
         .order_by(DocumentVersion.created.desc())
         .limit(200)
@@ -26,6 +28,7 @@ def document_index(db, project_id):
             "revision": v.revision,
             "sha256": v.sha256,
             "current": d.revision == v.revision,
+            "state": v.state,
             "warnings": v.warnings,
         }
         for v, d in rows
@@ -61,3 +64,19 @@ def current_document_ids(db, project_id):
             )
         )
     )
+
+
+def run_source_freshness(db, run):
+    versions = {s["version_id"] for s in (run.project_context or {}).get("document_sources", [])}
+    for evidence in db.scalars(
+        select(ResearchObject.data).where(
+            ResearchObject.run_id == run.id, ResearchObject.kind == "document_evidence"
+        )
+    ):
+        versions.add(evidence["version_id"])
+    stale = sorted(versions - current_document_ids(db, run.project_id))
+    return {
+        "current": not stale,
+        "stale_document_version_ids": stale,
+        "notice": "Historical evidence is retained; changed document definitions require an applicability review, not an automatic change of scientific verdict.",
+    }
