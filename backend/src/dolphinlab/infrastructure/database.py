@@ -10,16 +10,19 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     create_engine,
 )
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 DATA_ROOT = Path(os.getenv("WORKSPACE_DATA_DIR", Path.cwd() / ".workspace-data")).resolve()
@@ -299,10 +302,12 @@ class ProjectMemory(Base):
     scope: Mapped[str] = mapped_column(String(20))
     kind: Mapped[str] = mapped_column(String(20))
     text: Mapped[str] = mapped_column(Text)
+    search_text: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20))
     source_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_action_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     input_ids: Mapped[list] = mapped_column(JSON, default=list)
+    document_refs: Mapped[list] = mapped_column(JSON, default=list)
     supersedes_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
@@ -320,3 +325,74 @@ class ConversationAccount(Base):
     __tablename__ = "conversation_accounts"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
     usage: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    __table_args__ = (UniqueConstraint("project_id", "id", name="uq_document_project_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(240))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class DocumentVersion(Base):
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_document_version_project_id"),
+        UniqueConstraint("document_id", "revision", name="uq_document_version_revision"),
+        UniqueConstraint("project_id", "request_id", name="uq_document_version_request"),
+        ForeignKeyConstraint(
+            ["project_id", "document_id"], ["documents.project_id", "documents.id"]
+        ),
+        CheckConstraint("revision > 0", name="ck_document_revision_positive"),
+        CheckConstraint(
+            "state IN ('queued','processing','ready','failed','deleted')", name="ck_document_state"
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    document_id: Mapped[str] = mapped_column(String(36), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(240))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    request_id: Mapped[str] = mapped_column(String(36))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    pipeline: Mapped[str] = mapped_column(String(100))
+    state: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    warnings: Mapped[list] = mapped_column(JSON, default=list)
+    lease_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "version_id"], ["document_versions.project_id", "document_versions.id"]
+        ),
+        UniqueConstraint("version_id", "ordinal", name="uq_chunk_ordinal"),
+        Index("ix_document_chunk_search", "search_vector", postgresql_using="gin"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    version_id: Mapped[str] = mapped_column(String(36), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    search_text: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String(64))
+    locator: Mapped[dict] = mapped_column(JSON)
+    search_vector: Mapped[object] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('russian'::regconfig, search_text) || to_tsvector('english'::regconfig, search_text) || to_tsvector('simple'::regconfig, search_text)",
+            persisted=True,
+        ),
+    )

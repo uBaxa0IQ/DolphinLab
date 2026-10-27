@@ -16,6 +16,9 @@ from dolphinlab.infrastructure.database import (
     ContextManifest,
     ConversationAccount,
     Directive,
+    Document,
+    DocumentChunk,
+    DocumentVersion,
     Event,
     GoalRevision,
     InputFile,
@@ -156,6 +159,8 @@ class ProjectService(Service):
                 db.execute(delete(model).where(model.project_id == project_id))
             for model in (ResearchIteration, GoalRevision):
                 db.execute(delete(model).where(model.project_id == project_id))
+            for model in (DocumentChunk, DocumentVersion, Document):
+                db.execute(delete(model).where(model.project_id == project_id))
             db.delete(project)
             upload_root = (DATA_ROOT / "projects").resolve()
             run_root = Path(os.environ.get("RUNS_ROOT", "/data/runs")).resolve()
@@ -170,7 +175,16 @@ class ProjectService(Service):
                 removed = False
                 continue
             try:
-                shutil.rmtree(target)
+
+                def remove_readonly(function, path, error):
+                    if not isinstance(error, PermissionError) or not Path(
+                        path
+                    ).resolve().is_relative_to(target):
+                        raise error
+                    os.chmod(path, 0o700)
+                    function(path)
+
+                shutil.rmtree(target, onexc=remove_readonly)
             except FileNotFoundError:
                 pass
             except OSError:

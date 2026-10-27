@@ -38,6 +38,7 @@ import RunPanel, { statusLabels } from "../features/research/RunPanel";
 import ResearchHistory from "../features/research/ResearchHistory";
 import TeamCard from "../features/research/TeamCard";
 import ReportPanel from "../features/research/ReportPanel";
+import DocumentsPanel from "../features/research/DocumentsPanel";
 import TeamStaffing from "../features/research/TeamStaffing";
 import ProjectSettingsPanel from "../features/settings/ProjectSettingsPanel";
 import SettingsPanel from "../features/settings/SettingsPanel";
@@ -960,6 +961,9 @@ export default function App() {
                       <span>Добавить исходные данные</span>
                       <small>Датасет, task.md или пример результата</small>
                     </button>
+                  )}
+                  {!project.demo && (
+                    <DocumentsPanel key={project.id} projectId={project.id} />
                   )}
                 </section>
               )}

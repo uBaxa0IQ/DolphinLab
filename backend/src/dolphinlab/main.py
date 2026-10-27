@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from dolphinlab.api.routes import (
+    documents,
     events,
     files,
     health,
@@ -31,7 +32,7 @@ def create_app() -> FastAPI:
         TrustedHostMiddleware,
         allowed_hosts=os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,api").split(","),
     )
-    for module in (health, settings, projects, messages, files, runs, events, research):
+    for module in (health, settings, projects, messages, files, runs, events, research, documents):
         application.include_router(module.router)
     return application
 

@@ -19,7 +19,7 @@ class RoleProfileRevision(BaseModel):
         "evaluator",
         "report_editor",
     ]
-    revision: Literal[1, 2, 3]
+    revision: Literal[1, 2, 3, 4]
     prompt: str = Field(min_length=1)
     tools: list[dict]
 

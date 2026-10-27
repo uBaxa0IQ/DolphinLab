@@ -12,6 +12,7 @@ import type {
   WorkspaceSettings,
 } from "../types";
 import type { ResultIndex, ResultRecord } from "../types/reports";
+import type { DocumentVersion, KnowledgeSource } from "../types/documents";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch("/api" + path, init);
   if (!response.ok) {
@@ -43,6 +44,64 @@ async function createOnce<T>(
   return result;
 }
 export const api = {
+  documents: (id: string) =>
+    request<DocumentVersion[]>(`/projects/${id}/documents`),
+  uploadDocument: async (
+    id: string,
+    file: File,
+    previous?: DocumentVersion,
+  ) => {
+    const key = JSON.stringify([
+      "document",
+      id,
+      file.name,
+      file.size,
+      file.lastModified,
+      previous?.id,
+    ]);
+    const clientId = pendingOperations.get(key) || crypto.randomUUID();
+    pendingOperations.set(key, clientId);
+    const form = new FormData();
+    form.set("file", file);
+    form.set("client_id", clientId);
+    form.set("expected_revision", String(previous?.revision || 0));
+    if (previous) form.set("document_id", previous.document_id);
+    const result = await request<DocumentVersion>(`/projects/${id}/documents`, {
+      method: "POST",
+      body: form,
+    });
+    pendingOperations.delete(key);
+    return result;
+  },
+  retryDocument: (id: string, version: string) =>
+    request<DocumentVersion>(
+      `/projects/${id}/documents/retry`,
+      json({ version_id: version }),
+    ),
+  removeDocument: (id: string, version: DocumentVersion) =>
+    request<{ notice: string }>(
+      `/projects/${id}/documents/${version.document_id}`,
+      { ...json({ expected_revision: version.revision }), method: "DELETE" },
+    ),
+  searchKnowledge: (
+    id: string,
+    query: string,
+    version?: string,
+    historical = false,
+  ) =>
+    request<{ results: KnowledgeSource[] }>(
+      `/projects/${id}/knowledge/search`,
+      json({
+        query,
+        kind: "documents",
+        version_id: version || null,
+        include_historical: historical,
+      }),
+    ),
+  readSource: (id: string, source: string, neighbors = 1) =>
+    request<KnowledgeSource>(
+      `/projects/${id}/knowledge/sources/${encodeURIComponent(source)}?neighbors=${neighbors}`,
+    ),
   results: (id: string, run: string) =>
     request<ResultIndex>(`/projects/${id}/runs/${run}/results`),
   result: (id: string, run: string, result: string) =>

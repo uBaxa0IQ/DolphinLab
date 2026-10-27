@@ -42,7 +42,9 @@ class DataQuestion(BaseModel):
 class MemoryNote(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=1, max_length=4000)
-    kind: Literal["user_statement", "hypothesis", "observation", "open_question"]
+    kind: Literal[
+        "user_statement", "hypothesis", "observation", "document_statement", "open_question"
+    ]
     scope: Literal["goal", "project"] = "goal"
     source_quote: str | None = Field(default=None, min_length=1, max_length=4000)
     query_id: UUID | None = None

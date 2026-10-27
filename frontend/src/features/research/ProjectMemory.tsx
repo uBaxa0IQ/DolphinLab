@@ -5,6 +5,7 @@ import type { MemoryRecord } from "../../types";
 const kinds: Record<string, string> = {
   user_statement: "Со слов пользователя",
   observation: "Наблюдение",
+  document_statement: "По документу",
   hypothesis: "Гипотеза",
   open_question: "Открытый вопрос",
 };
@@ -72,8 +73,20 @@ export default function ProjectMemory({
           )}
           <small>
             Источник: сообщение {record.message_id.slice(0, 8)}
-            {record.query_id ? ` · расчёт ${record.query_id.slice(0, 8)}` : ""}.
+            {record.query_id
+              ? ` · источник ${record.query_id.slice(0, 8)}`
+              : ""}
+            .
           </small>
+          {record.document_refs?.map((ref) => (
+            <p key={ref.source_id}>
+              <a
+                href={`/api/projects/${projectId}/knowledge/sources/${encodeURIComponent(ref.source_id)}`}
+              >
+                {ref.citation}
+              </a>
+            </p>
+          ))}
         </article>
       ))}
       {(offset > 0 || records.length === 100) && (

@@ -96,6 +96,14 @@ class PlatformRuntime(Runtime):
                 required.append("draft")
             elif function["name"] == "send_message" and "kind" not in required:
                 required.append("kind")
+            elif function["name"] == "search_knowledge":
+                required.extend(
+                    field
+                    for field in ("kind", "include_historical", "limit")
+                    if field not in required
+                )
+            elif function["name"] == "read_source" and "neighbors" not in required:
+                required.append("neighbors")
         return tools
 
     def state(self, agent):
@@ -255,6 +263,74 @@ class PlatformRuntime(Runtime):
 
     async def dispatch(self, agent, name, args):
         agent = self.actor(agent)
+        if name in {"search_knowledge", "read_source"}:
+            from dolphinlab.application.documents import DocumentService, digest_text
+            from dolphinlab.domain.documents import ReadSource, SearchKnowledge
+            from dolphinlab.research.tools import resolve_call
+
+            profile = self.staffing.profile(agent)
+            resolve_call(agent["role"], name, args, profile["revision"], profile["tools"])
+            with Session() as db:
+                run = db.get(Run, self.platform_run_id)
+                project_id, context = run.project_id, run.project_context or {}
+            service = DocumentService()
+            pinned = context.get("documents", [])
+            selected = context.get("document_sources", [])
+            if name == "search_knowledge":
+                query = SearchKnowledge.model_validate(args)
+                allowed = [
+                    v["version_id"] for v in pinned if v["current"] or query.include_historical
+                ]
+                result = service.search(project_id, query, allowed_versions=allowed)
+                # Search snippets are evidence too: persist exact returned chunks so that a
+                # later deletion cannot silently remove the sources of a model's response.
+                for item in result["results"]:
+                    if item.get("kind") == "document":
+                        item_key = "source-" + item["chunk_id"]
+                        try:
+                            self.store.get("document_evidence", item_key)
+                        except KeyError:
+                            self.store.put("document_evidence", item_key, item)
+                return result
+            request = ReadSource.model_validate(args)
+            key = "source-" + request.source_id.removeprefix("chunk:")
+            try:
+                saved = self.store.get("document_evidence", key)
+            except KeyError:
+                saved = next((s for s in selected if s["source_id"] == request.source_id), None)
+            if saved is None:
+                saved = service.read(
+                    project_id,
+                    request.source_id,
+                    2 if request.source_id.startswith("chunk:") else 0,
+                    allowed_versions=[v["version_id"] for v in pinned],
+                )
+            if saved.get("kind") == "document":
+                if digest_text(saved["text"]) != saved["sha256"]:
+                    raise ValueError("Frozen document source hash mismatch")
+                for item in [saved, *saved.get("neighbors", [])]:
+                    item_key = "source-" + item["source_id"].removeprefix("chunk:")
+                    try:
+                        self.store.get("document_evidence", item_key)
+                    except KeyError:
+                        self.store.put(
+                            "document_evidence",
+                            item_key,
+                            {k: v for k, v in item.items() if k != "neighbors"},
+                        )
+                adjacent = [
+                    s
+                    for s in self.store.all("document_evidence")
+                    if s["version_id"] == saved["version_id"]
+                    and 0 < abs(s["ordinal"] - saved["ordinal"]) <= request.neighbors
+                ]
+                return {
+                    **saved,
+                    "neighbors": sorted(adjacent, key=lambda s: s["ordinal"]),
+                    "frozen_for_run": True,
+                    "notice": "Exact saved evidence; check current applicability separately. Deletion from live search does not erase this Run snapshot.",
+                }
+            return saved
         if name == "acknowledge_directive":
             if agent["role"] != "tech_lead" or args.get("state") not in (
                 "accepted",

@@ -150,6 +150,7 @@ export type MemoryRecord = {
   message_id: string;
   query_id?: string | null;
   input_ids: string[];
+  document_refs?: { source_id: string; version_id: string; citation: string }[];
 };
 export type ResearchRun = {
   id: string;
@@ -212,6 +213,12 @@ export type GoalSpec = {
   prior_results?: {
     run_id: string;
     result_id: string;
+    sha256: string;
+    reason: string;
+  }[];
+  document_sources?: {
+    version_id: string;
+    chunk_id: string;
     sha256: string;
     reason: string;
   }[];

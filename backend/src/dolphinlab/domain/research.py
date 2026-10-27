@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from dolphinlab.domain.documents import DocumentSource
+
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
@@ -31,6 +33,7 @@ class GoalSpec(BaseModel):
     constraints: tuple[Text, ...] = Field(default=(), max_length=30)
     open_questions: tuple[Text, ...] = Field(default=(), max_length=30)
     prior_results: tuple[PriorResult, ...] = Field(default=(), max_length=20)
+    document_sources: tuple[DocumentSource, ...] = Field(default=(), max_length=20)
 
     def task_text(self) -> str:
         parts = [self.question]

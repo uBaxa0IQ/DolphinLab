@@ -16,6 +16,7 @@ from dolphinlab.domain.conversation import (
     MessageRoute,
     ResearchInstruction,
 )
+from dolphinlab.domain.documents import ReadSource, SearchKnowledge
 from dolphinlab.domain.research import GoalSpec
 from dolphinlab.infrastructure.database import (
     DATA_ROOT,
@@ -84,6 +85,29 @@ class PMWorkspace(Service):
 
     def _perform(self, db, source, project, name, arguments, action_id):
         binding = source.context_binding or {}
+        if name in {"search_knowledge", "read_source"}:
+            from .documents import DocumentService
+
+            service = DocumentService(self.sessions)
+            versions = binding.get("documents", [])
+            if name == "search_knowledge":
+                query = SearchKnowledge.model_validate(arguments)
+                allowed = [
+                    v["version_id"]
+                    for v in versions
+                    if v["current"]
+                    or query.include_historical
+                    or str(query.version_id) == v["version_id"]
+                ]
+                return service.search(project.id, query, db=db, allowed_versions=allowed)
+            request = ReadSource.model_validate(arguments)
+            return service.read(
+                project.id,
+                request.source_id,
+                request.neighbors,
+                db=db,
+                allowed_versions=[v["version_id"] for v in versions],
+            )
         if name == "route_message":
             route = MessageRoute.model_validate(arguments)
             if binding.get("requested_intent", source.intent) != "auto" or source.intent != "auto":
@@ -206,6 +230,34 @@ class PMWorkspace(Service):
         if name == "remember":
             note = MemoryNote.model_validate(arguments)
             query = None
+            document_refs = []
+            if note.kind == "document_statement":
+                query = (
+                    db.scalar(
+                        select(PMAction).where(
+                            PMAction.project_id == project.id,
+                            PMAction.id == str(note.query_id),
+                            PMAction.kind == "read_source",
+                        )
+                    )
+                    if note.query_id
+                    else None
+                )
+                if (
+                    not query
+                    or query.result.get("kind") != "document"
+                    or not note.source_quote
+                    or note.source_quote not in query.result.get("text", "")
+                ):
+                    raise ValueError(
+                        "Утверждение документа требует сохранённого read_source и точной цитаты из него"
+                    )
+                document_refs = [
+                    {
+                        k: query.result[k]
+                        for k in ("source_id", "version_id", "chunk_id", "sha256", "citation")
+                    }
+                ]
             if note.kind == "user_statement":
                 if not note.source_quote or note.source_quote not in source.content:
                     raise ValueError(
@@ -249,10 +301,16 @@ class PMWorkspace(Service):
                 scope=note.scope,
                 kind=note.kind,
                 text=note.text,
+                search_text=note.text.casefold(),
                 status="user_stated" if note.kind == "user_statement" else "reported",
-                source_quote=note.source_quote if note.kind == "user_statement" else None,
+                source_quote=note.source_quote
+                if note.kind in {"user_statement", "document_statement"}
+                else None,
                 source_action_id=query.id if query else None,
-                input_ids=[query.result["input_id"]] if query else [],
+                input_ids=[query.result["input_id"]]
+                if query and note.kind == "observation"
+                else [],
+                document_refs=document_refs,
                 supersedes_id=str(note.supersedes_id) if note.supersedes_id else None,
             )
             db.add(record)

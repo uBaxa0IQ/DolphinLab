@@ -38,6 +38,8 @@ def latest_inputs(db, project_id):
 
 
 def bind_message(db, project_id):
+    from .document_context import document_index
+
     goal, iteration = latest_goal(db, project_id), latest_iteration(db, project_id)
     run = db.scalar(
         select(Run)
@@ -50,6 +52,7 @@ def bind_message(db, project_id):
     run_input_ids = [item["id"] for item in run.inputs if item.get("id")] if run else []
     return {
         "schema_version": 1,
+        "documents": document_index(db, project_id),
         "goal_revision_id": goal.id if goal else None,
         "goal_revision": goal.revision if goal else 0,
         "iteration_id": active.iteration_id if active else (iteration.id if iteration else None),
@@ -74,6 +77,7 @@ def memory_view(record, *, current=True, superseded=False):
         "message_id": record.message_id,
         "source_quote": record.source_quote,
         "query_id": record.source_action_id,
+        "document_refs": record.document_refs,
         "input_ids": record.input_ids,
         "supersedes_id": record.supersedes_id,
         "current": current,
@@ -83,6 +87,9 @@ def memory_view(record, *, current=True, superseded=False):
 
 
 def memory_records(db, project_id, goal_id, input_ids, *, include_stale=False, offset=0, limit=100):
+    from .document_context import current_document_ids
+
+    current_documents = current_document_ids(db, project_id)
     records = list(
         db.scalars(
             select(ProjectMemory)
@@ -106,6 +113,7 @@ def memory_records(db, project_id, goal_id, input_ids, *, include_stale=False, o
             (item.scope == "project" or item.goal_revision_id == goal_id)
             and set(item.input_ids).issubset(input_ids)
             and item.id not in superseded
+            and all(ref["version_id"] in current_documents for ref in item.document_refs)
         )
         if current or include_stale:
             output.append(memory_view(item, current=current, superseded=item.id in superseded))
@@ -116,6 +124,7 @@ def run_context(db, project_id, goal_id, input_ids, parent_iteration_id):
     """Freeze selected memory and earlier-run references at Run creation."""
     from dolphinlab.domain.research import GoalSpec
 
+    from .document_context import document_index, selected_documents
     from .result_context import selected_results
 
     goal = db.get(GoalRevision, goal_id)
@@ -184,6 +193,10 @@ def run_context(db, project_id, goal_id, input_ids, parent_iteration_id):
     ][:10]
     return {
         "schema_version": 1,
+        "documents": document_index(db, project_id),
+        "document_sources": selected_documents(
+            db, project_id, GoalSpec.model_validate(goal.spec).document_sources
+        ),
         "memory": memory_records(db, project_id, goal_id, input_ids)[:20],
         "historical_memory": historical,
         "previous_runs": references,
@@ -275,6 +288,7 @@ class KnowledgeService(Service):
             ).all()
             snapshot = {
                 "schema_version": 1,
+                "documents": binding.get("documents", []),
                 "project": {"id": project.id, "name": project.name},
                 "source_message": {
                     "id": source.id,
@@ -364,4 +378,22 @@ class KnowledgeService(Service):
                         id=ident, project_id=project.id, message_id=source.id, snapshot=snapshot
                     )
                 )
-            return {**snapshot, "context_manifest_id": ident}
+            documents = binding.get("documents", [])
+            return {
+                **snapshot,
+                "context_manifest_id": ident,
+                "documents": [
+                    {k: v for k, v in item.items() if k != "warnings"} for item in documents[:20]
+                ],
+                "document_scope": {
+                    "pinned_versions": len(documents),
+                    "index_limit": 20,
+                    "scope_limit": 200,
+                    "may_be_clipped": len(documents) >= 200,
+                    "notice": "Search uses the pinned version scope. Extraction warnings are returned with sources. Complete selection is saved in the context manifest.",
+                },
+                "source_message": {
+                    **snapshot["source_message"],
+                    "binding": {k: v for k, v in binding.items() if k != "documents"},
+                },
+            }

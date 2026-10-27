@@ -1,0 +1,54 @@
+.document-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.document-panel > p,
+.document-panel small {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.document-panel ul {
+  padding-left: 20px;
+}
+.document-panel input:not([type="checkbox"]),
+.document-panel select {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+}
+.document-panel form > input {
+  flex: 1 1 220px;
+}
+.document-panel label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.document-panel li > button {
+  margin: 4px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--green);
+  background: var(--paper);
+  cursor: pointer;
+  font: inherit;
+}
+.document-panel article {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.document-panel pre {
+  max-width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+}

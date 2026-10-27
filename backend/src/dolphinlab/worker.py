@@ -7,6 +7,7 @@ from sqlalchemy import select, text
 
 from dolphinlab.agents.project_manager import ProjectManager
 from dolphinlab.agents.session import ResearchSession
+from dolphinlab.application.documents import DocumentService
 from dolphinlab.infrastructure.conversation_usage import recover_reservations
 from dolphinlab.infrastructure.database import ConversationAccount, Message, Run, Session, engine
 from dolphinlab.infrastructure.model_clients import ModelClientFactory
@@ -27,11 +28,14 @@ class Worker:
 
     async def run(self):
         pm = asyncio.create_task(self.manager.run())
+        ingestion = asyncio.create_task(self.ingest())
         try:
             while not self.stopping:
                 self.owner.execute(text("SELECT 1"))
                 if pm.done():
                     await pm
+                if ingestion.done():
+                    await ingestion
                 if self.active and self.active.done():
                     await self.active
                     self.active = None
@@ -61,11 +65,18 @@ class Worker:
             self.manager.stopping = True
             self.researcher.stopping = True
             pm.cancel()
-            await asyncio.gather(pm, return_exceptions=True)
+            ingestion.cancel()
+            await asyncio.gather(pm, ingestion, return_exceptions=True)
             if self.researcher.runtime:
                 self.researcher.runtime.done = True
             if self.active:
                 await self.active
+
+    async def ingest(self):
+        documents = DocumentService()
+        while not self.stopping:
+            await asyncio.to_thread(documents.process_next)
+            await asyncio.sleep(1)
 
 
 async def main():

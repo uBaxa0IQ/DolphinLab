@@ -43,6 +43,10 @@ docker compose --env-file .env.docker.local up -d --no-deps --force-recreate api
 
 ## Обновление и backup
 
+Этап документов добавляет миграцию `0007` и зависимости из актуального backend lock-файла; образы необходимо пересобрать. Ingestion выполняется worker и при `ENABLE_MODEL_CALLS=false`, без API модели. Оригиналы документов находятся в uploads volume, версии/чанки/FTS — в PostgreSQL, зафиксированные доказательства исследования — также в Run и runs volume. Backup должен включать все три хранилища согласованно.
+
+Для воспроизводимых timestamp-ответов используйте timezone UTC в PostgreSQL (это стандартная конфигурация контейнера). Поиск документов/памяти хранит Unicode casefold отдельно от исходного текста. Парсер ограничен процессом/таймаутом, Linux resource limits; OCR не входит в поставку. Замена парсера/алгоритма требует новой версии pipeline и новой версии документа; готовые чанки не переписываются. FTS-индекс PostgreSQL строится по каноническим данным и включён в обычное восстановление БД. Ограничения и оставшаяся приёмка описаны в [этапе 6](STAGE_6_DOCUMENTS_RAG.md).
+
 После публикации в GHCR можно использовать готовые образы: добавить `DOLPHINLAB_IMAGE_PREFIX=ghcr.io/owner/repository` и `DOLPHINLAB_VERSION=v0.1.0` в локальный env, затем выполнить `docker compose --env-file .env.docker.local -f compose.yaml -f compose.release.yaml pull` и `docker compose --env-file .env.docker.local -f compose.yaml -f compose.release.yaml up --no-build -d`. Для закрытых пакетов потребуется предварительный docker login ghcr.io. Не использовать release override до фактической публикации образов.
 
 Перед обновлением поставить исследования на паузу и сохранить резервную копию. Переключиться на проверенный тег, собрать образы. При миграциях остановить api/worker, выполнить `docker compose --env-file .env.docker.local run --rm migrate`, затем поднять сервисы.

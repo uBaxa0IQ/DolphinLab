@@ -42,6 +42,12 @@ class ResearchSession:
         task = task_dir / "task.md"
         if task.exists():
             for index, selected in enumerate(
+                (run.project_context or {}).get("document_sources", [])
+            ):
+                self.validate_frozen(
+                    task_dir / f"document-source-{index + 1}.txt", selected["sha256"]
+                )
+            for index, selected in enumerate(
                 (run.project_context or {}).get("selected_results", [])
             ):
                 self.validate_frozen(
@@ -68,6 +74,13 @@ class ResearchSession:
         )
         context_path = task_dir / "project-context.json"
         project_context = copy.deepcopy(run.project_context or {})
+        for index, selected in enumerate(project_context.get("document_sources", [])):
+            content = selected["text"].encode("utf-8")
+            if hashlib.sha256(content).hexdigest() != selected["sha256"]:
+                raise ValueError("Frozen document source hash mismatch")
+            destination = task_dir / f"document-source-{index + 1}.txt"
+            freeze_bytes(destination, content)
+            selected["artifact_path"] = str(destination)
         for index, selected in enumerate(project_context.get("selected_results", [])):
             origin = Path(selected["artifact_path"])
             destination = task_dir / f"prior-result-{index + 1}.json"
@@ -86,6 +99,23 @@ class ResearchSession:
         )
         context_index = {
             "full_snapshot": str(context_path),
+            "documents": [
+                {k: v for k, v in item.items() if k != "warnings"}
+                for item in project_context.get("documents", [])[:20]
+            ],
+            "document_scope": {
+                "pinned_versions": len(project_context.get("documents", [])),
+                "index_limit": 20,
+                "scope_limit": 200,
+                "may_be_clipped": len(project_context.get("documents", [])) >= 200,
+            },
+            "document_sources": [
+                {
+                    k: source.get(k)
+                    for k in ("source_id", "version_id", "chunk_id", "sha256", "reason", "citation")
+                }
+                for source in project_context.get("document_sources", [])
+            ],
             "selected_results": [
                 {
                     key: item.get(key)

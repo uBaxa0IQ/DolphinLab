@@ -637,8 +637,40 @@ CATALOG += [
 ]
 
 
-def tools_for(role, revision=3):
-    catalog = LEGACY_CATALOG if revision == 1 else V2_CATALOG if revision == 2 else CATALOG
+V3_CATALOG = deepcopy(CATALOG)
+CATALOG += [
+    spec(
+        "search_knowledge",
+        "Search document evidence in the Run's pinned versions; also attributed memory or historical result metadata",
+        {
+            "query": S,
+            "kind": {"enum": ["documents", "memory", "results", "all"]},
+            "include_historical": B,
+            "limit": INTEGER,
+        },
+        ["query"],
+        route="document_search",
+    ),
+    spec(
+        "read_source",
+        "Read an exact source, preserving its version/hash and citation; neighbors 0..2. Saved document evidence survives later deletion",
+        {"source_id": S, "neighbors": INTEGER},
+        ["source_id"],
+        route="document_read",
+    ),
+]
+
+
+def tools_for(role, revision=4):
+    catalog = (
+        LEGACY_CATALOG
+        if revision == 1
+        else V2_CATALOG
+        if revision == 2
+        else V3_CATALOG
+        if revision == 3
+        else CATALOG
+    )
     return [
         deepcopy(item["schema"])
         for item in catalog
@@ -685,8 +717,16 @@ def validate_value(value, schema, path="arguments"):
         raise ValueError(f"{path}: invalid string length")
 
 
-def resolve_call(role, name, arguments, revision=3, schemas=None):
-    catalog = LEGACY_CATALOG if revision == 1 else V2_CATALOG if revision == 2 else CATALOG
+def resolve_call(role, name, arguments, revision=4, schemas=None):
+    catalog = (
+        LEGACY_CATALOG
+        if revision == 1
+        else V2_CATALOG
+        if revision == 2
+        else V3_CATALOG
+        if revision == 3
+        else CATALOG
+    )
     item = next((i for i in catalog if i["schema"]["function"]["name"] == name), None)
     if item is None or (item["roles"] is not None and role not in item["roles"]):
         raise ValueError(f"{name} is unavailable to {role}; use your role's listed operations")
