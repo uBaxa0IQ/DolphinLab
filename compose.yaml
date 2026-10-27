@@ -1,0 +1,103 @@
+name: sonder
+x-platform: &platform
+  build:
+    context: .
+    target: platform
+  restart: unless-stopped
+  init: true
+  env_file: .env.docker.local
+  environment: &environment
+    PLATFORM_ENV: docker
+    DATABASE_URL: postgresql+psycopg://sonder:${POSTGRES_PASSWORD:?Run scripts/bootstrap_platform.py}@postgres:5432/sonder
+    WORKSPACE_DATA_DIR: /data/uploads
+    RUNS_ROOT: /data/runs
+    EXECUTOR_URL: http://executor:8090
+    ENABLE_MODEL_CALLS: ${ENABLE_MODEL_CALLS:-false}
+  volumes:
+    - uploads:/data/uploads
+    - runs:/data/runs
+  networks: [backend]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sonder
+      POSTGRES_USER: sonder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/bootstrap_platform.py}
+    volumes: [postgres:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U sonder -d sonder"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    <<: *platform
+    restart: "no"
+    command: [alembic, upgrade, head]
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *platform
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  worker:
+    <<: *platform
+    build:
+      context: .
+      target: worker
+    command: [python, -m, sonder.worker]
+    networks: [backend, execution]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      executor: {condition: service_healthy}
+    stop_grace_period: 45s
+  executor:
+    build:
+      context: .
+      target: executor
+    restart: unless-stopped
+    init: true
+    environment:
+      EXECUTOR_TOKEN: ${EXECUTOR_TOKEN:?Run scripts/bootstrap_platform.py}
+      RUNS_ROOT: /data/runs
+    volumes: [runs:/data/runs]
+    networks: [execution]
+    read_only: true
+    tmpfs: ["/tmp:size=1g,mode=1777"]
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 512
+    cpus: ${EXECUTOR_CPUS:-8}
+    mem_limit: ${EXECUTOR_MEMORY_GB:-28}g
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports: ["${BIND_HOST:-127.0.0.1}:${WEB_PORT:-8080}:80"]
+    networks: [backend]
+    depends_on:
+      api: {condition: service_healthy}
+networks:
+  backend: {}
+  execution:
+    internal: true
+volumes:
+  postgres: {}
+  uploads: {}
+  runs: {}

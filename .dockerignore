@@ -1,0 +1,22 @@
+# Send only application sources and build configuration to Docker.
+.git
+.github
+**/node_modules
+**/dist
+**/build
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.venv
+**/.ruff_cache
+.env
+.env.*.local
+.workspace-data
+.platform-logs
+data
+runs
+uploads
+**/*.log
+**/*.sqlite*
+**/*.dump
+**/secret.key
