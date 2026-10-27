@@ -68,7 +68,7 @@ function readDemoChat(): Record<string, ChatMessage[]> {
   try {
     return {
       ...initialDemoMessages,
-      ...JSON.parse(localStorage.getItem("sonder-demo-chat") || "{}"),
+      ...JSON.parse(localStorage.getItem("dolphinlab-demo-chat") || "{}"),
     };
   } catch {
     return initialDemoMessages;
@@ -132,7 +132,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     try {
-      localStorage.setItem("sonder-demo-chat", JSON.stringify(demoChats));
+      localStorage.setItem("dolphinlab-demo-chat", JSON.stringify(demoChats));
     } catch {
       setChatError(
         "Не удалось сохранить демочат в браузере. Текущая переписка доступна до закрытия страницы.",
@@ -329,7 +329,7 @@ export default function App() {
   }
   function downloadDemo() {
     const text =
-      "# Демоотчёт Sonder\n\nВымышленные данные для просмотра дизайна.\nПроект: " +
+      "# Демоотчёт DolphinLab\n\nВымышленные данные для просмотра дизайна.\nПроект: " +
       project.name +
       "\nМетрика: " +
       project.metric +
@@ -360,7 +360,7 @@ export default function App() {
           <span className="brand-mark">
             <Zap size={20} fill="currentColor" strokeWidth={1} />
           </span>
-          sonder<span className="brand-period">.</span>
+          DolphinLab<span className="brand-period">.</span>
         </a>
         <button className="workspace-switch" onClick={() => setDirectory(true)}>
           <span className="workspace-avatar">

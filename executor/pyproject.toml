@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sonder-executor"
+name = "dolphinlab-executor"
 version = "0.1.0"
-description = "Resource-controlled Python execution service for Sonder"
+description = "Resource-controlled Python execution service for DolphinLab"
 requires-python = ">=3.12"
 dynamic = ["dependencies"]
 

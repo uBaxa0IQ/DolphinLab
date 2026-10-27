@@ -7,6 +7,7 @@ from pathlib import Path
 
 path = Path(__file__).resolve().parents[1] / ".env.docker.local"
 content = (
+    "COMPOSE_PROJECT_NAME=dolphinlab\nPOSTGRES_DB=dolphinlab\nPOSTGRES_USER=dolphinlab\n"
     f"POSTGRES_PASSWORD={secrets.token_urlsafe(32)}\n"
     f"WORKSPACE_ENCRYPTION_KEY={base64.urlsafe_b64encode(os.urandom(32)).decode()}\n"
     f"EXECUTOR_TOKEN={secrets.token_urlsafe(32)}\n"

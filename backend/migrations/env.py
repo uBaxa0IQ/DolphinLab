@@ -1,6 +1,6 @@
 from alembic import context
 
-from sonder.infrastructure.database import Base, engine
+from dolphinlab.infrastructure.database import Base, engine
 
 if context.is_offline_mode():
     context.configure(url=str(engine.url), target_metadata=Base.metadata, literal_binds=True)

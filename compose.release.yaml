@@ -1,11 +1,11 @@
 services:
   api:
-    image: ${SONDER_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/api:${SONDER_VERSION:?Set release tag}
+    image: ${DOLPHINLAB_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/api:${DOLPHINLAB_VERSION:?Set release tag}
   migrate:
-    image: ${SONDER_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/api:${SONDER_VERSION:?Set release tag}
+    image: ${DOLPHINLAB_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/api:${DOLPHINLAB_VERSION:?Set release tag}
   worker:
-    image: ${SONDER_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/worker:${SONDER_VERSION:?Set release tag}
+    image: ${DOLPHINLAB_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/worker:${DOLPHINLAB_VERSION:?Set release tag}
   executor:
-    image: ${SONDER_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/executor:${SONDER_VERSION:?Set release tag}
+    image: ${DOLPHINLAB_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/executor:${DOLPHINLAB_VERSION:?Set release tag}
   web:
-    image: ${SONDER_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/web:${SONDER_VERSION:?Set release tag}
+    image: ${DOLPHINLAB_IMAGE_PREFIX:?Set ghcr.io/owner/repository}/web:${DOLPHINLAB_VERSION:?Set release tag}

@@ -1,4 +1,4 @@
-# Sonder
+# DolphinLab
 
 Пространство для автономных ML-исследований с динамическими командами AI-агентов.
 Загрузите задачу и данные, задайте ресурсы и следите за исследованием через дашборд и чат с project manager.
@@ -53,7 +53,7 @@ docker compose --env-file .env.docker.local up -d --no-deps --force-recreate api
 
 ```text
 backend/
-  src/sonder/
+  src/dolphinlab/
     api/              HTTP-маршруты, схемы и представления
     application/      Сервисы проектов, файлов, сообщений и запусков
     agents/           LangGraph, PM и исполнение исследовательских сессий
@@ -70,7 +70,7 @@ frontend/
     lib/              API-клиент и форматирование
     data/             Демонстрационные проекты
 executor/
-  src/sonder_executor/  Сервис выполнения и supervisor процессов
+  src/dolphinlab_executor/  Сервис выполнения и supervisor процессов
 docs/                 Архитектура, эксплуатация и публикация
 scripts/              Настройка окружения и проверка секретов
 ```

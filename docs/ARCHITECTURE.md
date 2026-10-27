@@ -1,6 +1,6 @@
 # Архитектура
 
-Sonder разделён на интерфейс, HTTP API, агентный worker и сервис выполнения кода.
+DolphinLab разделён на интерфейс, HTTP API, агентный worker и сервис выполнения кода.
 PostgreSQL хранит прикладное состояние и checkpoints сессий, файловые volumes — входы и артефакты.
 
 ```mermaid
@@ -18,7 +18,7 @@ flowchart LR
 
 ## Backend
 
-`sonder.main` собирает приложение и подключает маршруты. `api/routes` содержит транспортный слой, `api/schemas` — контракты запросов, `api/presenters` — представления ответов.
+`dolphinlab.main` собирает приложение и подключает маршруты. `api/routes` содержит транспортный слой, `api/schemas` — контракты запросов, `api/presenters` — представления ответов.
 Application-сервисы `ProjectService`, `RunService`, `MessageService`, `FileService` и `SettingsService` выполняют операции с проектами через переданную фабрику сессий.
 
 `Worker` владеет общим планированием. `ProjectManager` обрабатывает переписку, `ResearchSession` готовит входы и исполняет один запуск. `ModelClientFactory` разделяет лимиты обращений между агентами и проверяет актуальность подключения.

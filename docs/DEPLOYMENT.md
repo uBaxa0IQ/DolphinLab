@@ -12,7 +12,9 @@ docker compose --env-file .env.docker.local logs --tail 100 api worker
 
 Compose ждёт PostgreSQL healthcheck и завершения Alembic перед API/worker. Использованы `service_healthy` и `service_completed_successfully`. [Docker Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/)
 
-PostgreSQL содержит прикладное состояние, исследовательские факты и checkpoints. Артефакты находятся в volumes `sonder_uploads`, `sonder_runs`, БД — `sonder_postgres`. Executor получает только runs volume, без ключа модели, DB credentials и Docker socket; сеть executor закрыта для интернета.
+PostgreSQL содержит прикладное состояние, исследовательские факты и checkpoints. Артефакты находятся в volumes `dolphinlab_uploads`, `dolphinlab_runs`, БД — `dolphinlab_postgres`. Executor получает только runs volume, без ключа модели, DB credentials и Docker socket; сеть executor закрыта для интернета.
+
+`COMPOSE_PROJECT_NAME` задаёт префикс контейнеров и volumes; `POSTGRES_USER` и `POSTGRES_DB` — пользователя и базу. Для существующей установки сохраняйте эти значения в локальном env: смена имени приложения не требует переноса данных. В команде backup используйте соответствующие имена пользователя и базы.
 
 ## Модель и ресурсы
 
@@ -37,11 +39,11 @@ docker compose --env-file .env.docker.local up -d --no-deps --force-recreate api
 
 ## Обновление и backup
 
-После публикации в GHCR можно использовать готовые образы: добавить `SONDER_IMAGE_PREFIX=ghcr.io/owner/repository` и `SONDER_VERSION=v0.1.0` в локальный env, затем выполнить `docker compose --env-file .env.docker.local -f compose.yaml -f compose.release.yaml pull` и `docker compose --env-file .env.docker.local -f compose.yaml -f compose.release.yaml up --no-build -d`. Для закрытых пакетов потребуется предварительный docker login ghcr.io. Не использовать release override до фактической публикации образов.
+После публикации в GHCR можно использовать готовые образы: добавить `DOLPHINLAB_IMAGE_PREFIX=ghcr.io/owner/repository` и `DOLPHINLAB_VERSION=v0.1.0` в локальный env, затем выполнить `docker compose --env-file .env.docker.local -f compose.yaml -f compose.release.yaml pull` и `docker compose --env-file .env.docker.local -f compose.yaml -f compose.release.yaml up --no-build -d`. Для закрытых пакетов потребуется предварительный docker login ghcr.io. Не использовать release override до фактической публикации образов.
 
 Перед обновлением поставить исследования на паузу и сохранить резервную копию. Переключиться на проверенный тег, собрать образы. При миграциях остановить api/worker, выполнить `docker compose --env-file .env.docker.local run --rm migrate`, затем поднять сервисы.
 
-Backup включает SQL dump, оба файловых volume и `.env.docker.local`. Без WORKSPACE_ENCRYPTION_KEY сохранённый ключ модели не расшифровать. Пример для Bash: `docker compose --env-file .env.docker.local exec -T postgres pg_dump -U sonder -d sonder -Fc > backup.dump`. В PowerShell для бинарного dump использовать подходящее перенаправление либо сохранить файл внутри контейнера и скопировать через docker cp. Восстанавливать согласованные по времени БД и артефакты в пустой экземпляр через pg_restore.
+Backup включает SQL dump, оба файловых volume и `.env.docker.local`. Без WORKSPACE_ENCRYPTION_KEY сохранённый ключ модели не расшифровать. Пример для Bash: `docker compose --env-file .env.docker.local exec -T postgres pg_dump -U dolphinlab -d dolphinlab -Fc > backup.dump`. В PowerShell для бинарного dump использовать подходящее перенаправление либо сохранить файл внутри контейнера и скопировать через docker cp. Восстанавливать согласованные по времени БД и артефакты в пустой экземпляр через pg_restore.
 
 `docker compose down` сохраняет volumes. `down -v` удаляет данные и не используется для обычного обновления.
 
