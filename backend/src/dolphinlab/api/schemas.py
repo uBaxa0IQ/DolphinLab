@@ -2,7 +2,9 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+from dolphinlab.domain.research import GoalSpec
 
 
 class UpdateSettings(BaseModel):
@@ -74,7 +76,29 @@ class EditProject(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=20000)
     archived: bool = False
+    expected_goal_revision: int | None = Field(default=None, ge=1)
 
 
 class ControlRun(BaseModel):
     action: str
+
+
+class CreateGoal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_id: UUID
+    expected_revision: int = Field(ge=0)
+    goal: GoalSpec
+
+
+class CreateIteration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_id: UUID
+    expected_sequence: int = Field(ge=0)
+    goal_revision_id: UUID
+    parent_iteration_id: UUID | None = None
+
+
+class StartRun(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_id: UUID | None = None
+    iteration_id: UUID | None = None

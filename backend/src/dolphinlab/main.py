@@ -6,7 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from dolphinlab.api.routes import events, files, health, messages, projects, runs, settings
+from dolphinlab.api.routes import (
+    events,
+    files,
+    health,
+    messages,
+    projects,
+    research,
+    runs,
+    settings,
+)
 from dolphinlab.infrastructure.database import engine
 
 
@@ -22,7 +31,7 @@ def create_app() -> FastAPI:
         TrustedHostMiddleware,
         allowed_hosts=os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,api").split(","),
     )
-    for module in (health, settings, projects, messages, files, runs, events):
+    for module in (health, settings, projects, messages, files, runs, events, research):
         application.include_router(module.router)
     return application
 

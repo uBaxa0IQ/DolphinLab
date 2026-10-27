@@ -16,6 +16,7 @@ export default function ProjectDetailsPanel({
 }) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
+  const [goalRevision] = useState(project.current_goal?.revision);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function update(event?: FormEvent, archive = !!project.archived) {
@@ -29,6 +30,7 @@ export default function ProjectDetailsPanel({
           name: name.trim(),
           description,
           archived: archive,
+          expected_goal_revision: goalRevision,
         }),
       );
     } catch (e) {

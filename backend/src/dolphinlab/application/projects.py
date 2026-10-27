@@ -10,15 +10,18 @@ from dolphinlab.api.dependencies import require_project
 from dolphinlab.api.presenters import project_view
 from dolphinlab.api.schemas import CreateProject, EditProject
 from dolphinlab.domain.policy import ProjectPolicy
+from dolphinlab.domain.research import GoalSpec
 from dolphinlab.infrastructure.database import (
     DATA_ROOT,
     Directive,
     Event,
+    GoalRevision,
     InputFile,
     Message,
     Project,
     ProjectPolicyRecord,
     ResearchEvent,
+    ResearchIteration,
     ResearchMail,
     ResearchObject,
     ResearchReceipt,
@@ -26,6 +29,7 @@ from dolphinlab.infrastructure.database import (
 )
 
 from .base import Service
+from .research import append_goal, latest_goal
 
 
 class ProjectService(Service):
@@ -41,6 +45,12 @@ class ProjectService(Service):
             project = Project(id=str(uuid4()), name=body.name, description=body.description)
             db.add(project)
             db.flush()
+            append_goal(
+                db,
+                project,
+                GoalSpec(question=body.description.strip() or body.name),
+                origin="project",
+            )
             db.add(
                 Event(
                     project_id=project.id,
@@ -69,6 +79,24 @@ class ProjectService(Service):
                 )
             ):
                 raise HTTPException(409, "Сначала заверши или останови исследование")
+            if project.description != body.description:
+                previous = latest_goal(db, project_id)
+                if (
+                    body.expected_goal_revision is not None
+                    and body.expected_goal_revision != previous.revision
+                ):
+                    raise HTTPException(409, "Цель изменилась. Открой настройки проекта заново.")
+                append_goal(
+                    db,
+                    project,
+                    GoalSpec.model_validate(
+                        {
+                            **previous.spec,
+                            "question": body.description.strip() or body.name,
+                        }
+                    ),
+                    origin="project",
+                )
             project.name, project.description, project.archived = (
                 body.name.strip(),
                 body.description,
@@ -119,6 +147,8 @@ class ProjectService(Service):
                 db.execute(delete(model).where(model.run_id.in_(run_ids)))
             db.execute(delete(Directive).where(Directive.project_id == project_id))
             for model in (Message, InputFile, Event, ProjectPolicyRecord, Run):
+                db.execute(delete(model).where(model.project_id == project_id))
+            for model in (ResearchIteration, GoalRevision):
                 db.execute(delete(model).where(model.project_id == project_id))
             db.delete(project)
             upload_root = (DATA_ROOT / "projects").resolve()

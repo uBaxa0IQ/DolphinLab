@@ -83,6 +83,8 @@ export type ChatMessage = {
 };
 export type ResearchRun = {
   id: string;
+  iteration_id: string;
+  goal_snapshot: GoalSpec;
   status: string;
   elapsed_seconds: number;
   created: string;
@@ -114,4 +116,33 @@ export type Project = {
   events: FeedEvent[];
   files: InputFile[];
   latest_run?: ResearchRun | null;
+  current_goal?: GoalRevision | null;
+};
+
+export type GoalSpec = {
+  schema_version: 1;
+  question: string;
+  expected_outputs: string[];
+  definitions: Record<string, string>;
+  constraints: string[];
+  open_questions: string[];
+};
+export type GoalRevision = {
+  id: string;
+  project_id: string;
+  revision: number;
+  goal: GoalSpec;
+  origin: "user" | "project" | "legacy";
+  created: string;
+};
+export type ResearchIteration = {
+  id: string;
+  project_id: string;
+  sequence: number;
+  parent_iteration_id: string | null;
+  goal: GoalRevision;
+  legacy: boolean;
+  status: string;
+  created: string;
+  runs: ResearchRun[];
 };

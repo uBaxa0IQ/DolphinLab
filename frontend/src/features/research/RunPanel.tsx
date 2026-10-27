@@ -83,7 +83,7 @@ export default function RunPanel({
         );
         return;
       }
-      if (name === "start") await api.start(project.id);
+      if (name === "start") await api.start(project.id, undefined, run?.id);
       else if (run) await api.control(project.id, run.id, name);
       changed();
     } catch (e) {

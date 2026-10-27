@@ -8,33 +8,50 @@ from sqlalchemy import select
 
 from dolphinlab.api.dependencies import execution_enabled, require_project
 from dolphinlab.api.presenters import run_view
-from dolphinlab.api.schemas import ControlRun
+from dolphinlab.api.schemas import ControlRun, StartRun
 from dolphinlab.domain.policy import ProjectPolicy
+from dolphinlab.domain.research import GoalSpec, request_fingerprint
 from dolphinlab.infrastructure.database import (
     Event,
+    GoalRevision,
     InputFile,
     Project,
     ProjectPolicyRecord,
     ResearchEvent,
+    ResearchIteration,
     Run,
     WorkspaceSettings,
     now,
 )
 
 from .base import Service
+from .research import append_iteration, latest_goal, latest_iteration, replay
 
 
 class RunService(Service):
-    def start_run(self, project_id: str):
-        if not execution_enabled():
-            raise HTTPException(
-                409,
-                "Исполнение отключено. Включи ENABLE_MODEL_CALLS в настройках Docker, когда будешь готов к платным запросам.",
-            )
+    def start_run(self, project_id: str, body: StartRun | None = None):
+        body = body or StartRun()
         with self.sessions.begin() as db:
             project = db.scalar(select(Project).where(Project.id == project_id).with_for_update())
             if not project:
                 raise HTTPException(404, "Проект не найден")
+            if body.client_id:
+                existing = replay(
+                    db.scalar(
+                        select(Run).where(
+                            Run.project_id == project_id,
+                            Run.request_id == str(body.client_id),
+                        )
+                    ),
+                    body,
+                )
+                if existing:
+                    return run_view(existing)
+            if not execution_enabled():
+                raise HTTPException(
+                    409,
+                    "Исполнение отключено. Включи ENABLE_MODEL_CALLS в настройках Docker, когда будешь готов к платным запросам.",
+                )
             if project.archived:
                 raise HTTPException(409, "Верни проект из архива перед запуском")
             if db.scalar(
@@ -86,10 +103,38 @@ class RunService(Service):
                     409,
                     "Ресурсы проекта превышают выделенные executor. Уменьши их в настройках проекта.",
                 )
+            if body.iteration_id:
+                iteration = db.scalar(
+                    select(ResearchIteration).where(
+                        ResearchIteration.id == str(body.iteration_id),
+                        ResearchIteration.project_id == project_id,
+                    )
+                )
+                if not iteration:
+                    raise HTTPException(404, "Итерация не найдена в этом проекте")
+                goal = db.get(GoalRevision, iteration.goal_revision_id)
+            else:
+                goal = latest_goal(db, project_id)
+                prepared = latest_iteration(db, project_id)
+                if (
+                    prepared
+                    and prepared.goal_revision_id == goal.id
+                    and not db.scalar(
+                        select(Run.id).where(Run.iteration_id == prepared.id).limit(1)
+                    )
+                ):
+                    iteration = prepared
+                else:
+                    iteration = append_iteration(db, project_id, goal.id)
+            snapshot = GoalSpec.model_validate(goal.spec)
             run = Run(
                 id=str(uuid4()),
                 project_id=project_id,
-                task_description=project.description,
+                iteration_id=iteration.id,
+                goal_snapshot=snapshot.model_dump(mode="json"),
+                request_id=str(body.client_id) if body.client_id else None,
+                request_hash=request_fingerprint(body) if body.client_id else None,
+                task_description=snapshot.task_text(),
                 policy=policy.model_dump(),
                 inputs=[
                     {

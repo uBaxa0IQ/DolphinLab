@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from dolphinlab.api.dependencies import execution_enabled
-from dolphinlab.infrastructure.database import Event, InputFile, Run
+from dolphinlab.infrastructure.database import Event, GoalRevision, InputFile, Run
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 
@@ -43,6 +43,8 @@ def message_view(message):
 def run_view(run):
     return {
         "id": run.id,
+        "iteration_id": run.iteration_id,
+        "goal_snapshot": run.goal_snapshot,
         "status": run.status,
         "elapsed_seconds": run.elapsed_seconds,
         "policy": run.policy,
@@ -59,6 +61,41 @@ def run_view(run):
     }
 
 
+def goal_view(goal):
+    return {
+        "id": goal.id,
+        "project_id": goal.project_id,
+        "revision": goal.revision,
+        "goal": goal.spec,
+        "origin": goal.origin,
+        "created": goal.created.isoformat(),
+    }
+
+
+def iteration_view(db, iteration, *, goal=None, runs=None):
+    if goal is None:
+        goal = db.get(GoalRevision, iteration.goal_revision_id)
+    if runs is None:
+        runs = list(
+            db.scalars(
+                select(Run)
+                .where(Run.iteration_id == iteration.id)
+                .order_by(Run.created.desc(), Run.id.desc())
+            )
+        )
+    return {
+        "id": iteration.id,
+        "project_id": iteration.project_id,
+        "sequence": iteration.sequence,
+        "parent_iteration_id": iteration.parent_iteration_id,
+        "goal": goal_view(goal),
+        "legacy": iteration.legacy,
+        "created": iteration.created.isoformat(),
+        "status": runs[0].status if runs else "draft",
+        "runs": [run_view(run) for run in runs],
+    }
+
+
 def project_view(db, project):
     files = db.scalars(
         select(InputFile).where(InputFile.project_id == project.id).order_by(InputFile.created)
@@ -72,11 +109,19 @@ def project_view(db, project):
         "message_saved": "Сообщение сохранено",
         "directive_received": "Получено поручение",
         "policy_updated": "Обновлены настройки проекта",
+        "goal_created": "Сохранена цель исследования",
+        "iteration_created": "Создана итерация",
     }
     latest = db.scalar(
         select(Run).where(Run.project_id == project.id).order_by(Run.created.desc()).limit(1)
     )
     snapshot = latest.snapshot if latest else {}
+    goal = db.scalar(
+        select(GoalRevision)
+        .where(GoalRevision.project_id == project.id)
+        .order_by(GoalRevision.revision.desc())
+        .limit(1)
+    )
     return {
         "id": project.id,
         "name": project.name,
@@ -88,6 +133,7 @@ def project_view(db, project):
         "experiments": snapshot.get("experiments", []),
         "files": [file_view(f) for f in files],
         "latest_run": run_view(latest) if latest else None,
+        "current_goal": goal_view(goal) if goal else None,
         "events": [
             {
                 "id": str(e.seq),

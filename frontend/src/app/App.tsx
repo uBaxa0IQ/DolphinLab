@@ -36,6 +36,7 @@ import ProjectDetailsPanel from "../features/projects/ProjectDetailsPanel";
 import ProjectsDirectory from "../features/projects/ProjectsDirectory";
 import ExperimentRows from "../features/research/ExperimentRows";
 import RunPanel, { statusLabels } from "../features/research/RunPanel";
+import ResearchHistory from "../features/research/ResearchHistory";
 import TeamCard from "../features/research/TeamCard";
 import ProjectSettingsPanel from "../features/settings/ProjectSettingsPanel";
 import SettingsPanel from "../features/settings/SettingsPanel";
@@ -55,7 +56,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "teams", label: "Команды" },
   { id: "experiments", label: "Эксперименты" },
   { id: "files", label: "Файлы" },
-  { id: "runs", label: "Запуски" },
+  { id: "runs", label: "История" },
 ];
 const clock = () =>
   new Date().toLocaleTimeString("ru-RU", {
@@ -235,6 +236,16 @@ export default function App() {
     setTab("overview");
     setEventsOpen(false);
     setChatMobile(false);
+  }
+  function refreshProject() {
+    api
+      .project(project.id)
+      .then((updated) =>
+        setProjects((before) =>
+          before.map((item) => (item.id === updated.id ? updated : item)),
+        ),
+      )
+      .catch((error) => setNotice(error.message));
   }
   async function send(e?: FormEvent, suggested?: string) {
     e?.preventDefault();
@@ -601,24 +612,22 @@ export default function App() {
                 </section>
               )}
 
+              {!project.demo && (tab === "overview" || tab === "runs") && (
+                <ResearchHistory
+                  key={project.id}
+                  project={project}
+                  expanded={tab === "runs"}
+                  enabled={settings.execution_enabled}
+                  changed={refreshProject}
+                />
+              )}
               {(tab === "overview" || tab === "runs") && (
                 <RunPanel
                   project={project}
                   enabled={settings.execution_enabled}
                   history={tab === "runs"}
                   openHistory={() => setTab("runs")}
-                  changed={() => {
-                    api
-                      .project(project.id)
-                      .then((updated) =>
-                        setProjects((before) =>
-                          before.map((item) =>
-                            item.id === updated.id ? updated : item,
-                          ),
-                        ),
-                      )
-                      .catch((error) => setNotice(error.message));
-                  }}
+                  changed={refreshProject}
                 />
               )}
               {(tab === "overview" || tab === "teams") && (

@@ -9,9 +9,11 @@ from pathlib import Path
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     String,
     Text,
@@ -122,10 +124,69 @@ class ProjectPolicyRecord(Base):
     policy: Mapped[dict] = mapped_column(JSON)
 
 
-class Run(Base):
-    __tablename__ = "runs"
+class GoalRevision(Base):
+    __tablename__ = "project_goals"
+    __table_args__ = (
+        UniqueConstraint("project_id", "revision", name="uq_goal_revision"),
+        UniqueConstraint("project_id", "id", name="uq_goal_project_id"),
+        UniqueConstraint("project_id", "request_id", name="uq_goal_request"),
+        CheckConstraint("revision > 0", name="ck_goal_revision_positive"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    spec: Mapped[dict] = mapped_column(JSON)
+    origin: Mapped[str] = mapped_column(String(20), default="user")
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ResearchIteration(Base):
+    __tablename__ = "research_iterations"
+    __table_args__ = (
+        UniqueConstraint("project_id", "sequence", name="uq_iteration_sequence"),
+        UniqueConstraint("project_id", "id", name="uq_iteration_project_id"),
+        UniqueConstraint("project_id", "request_id", name="uq_iteration_request"),
+        CheckConstraint("sequence > 0", name="ck_iteration_sequence_positive"),
+        ForeignKeyConstraint(
+            ["project_id", "goal_revision_id"],
+            ["project_goals.project_id", "project_goals.id"],
+            name="fk_iteration_goal_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "parent_iteration_id"],
+            ["research_iterations.project_id", "research_iterations.id"],
+            name="fk_iteration_parent_project",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    goal_revision_id: Mapped[str] = mapped_column(String(36))
+    parent_iteration_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    legacy: Mapped[bool] = mapped_column(Boolean, default=False)
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Run(Base):
+    __tablename__ = "runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "iteration_id"],
+            ["research_iterations.project_id", "research_iterations.id"],
+            name="fk_run_iteration_project",
+        ),
+        UniqueConstraint("project_id", "request_id", name="uq_run_request"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    iteration_id: Mapped[str] = mapped_column(String(36), index=True)
+    goal_snapshot: Mapped[dict] = mapped_column(JSON)
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
     requested_action: Mapped[str] = mapped_column(String(20), default="run")
     policy: Mapped[dict] = mapped_column(JSON)

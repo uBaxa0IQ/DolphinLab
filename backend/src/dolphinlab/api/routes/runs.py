@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from dolphinlab.api.schemas import ControlRun
+from dolphinlab.api.schemas import ControlRun, StartRun
 from dolphinlab.application.runs import RunService
 
 router = APIRouter(prefix="/api", tags=["runs"])
@@ -8,8 +8,8 @@ service = RunService()
 
 
 @router.post("/projects/{project_id}/runs")
-def start_run(project_id: str):
-    return service.start_run(project_id)
+def start_run(project_id: str, body: StartRun | None = None):
+    return service.start_run(project_id, body)
 
 
 @router.get("/projects/{project_id}/runs")
