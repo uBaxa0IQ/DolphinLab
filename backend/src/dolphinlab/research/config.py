@@ -47,6 +47,7 @@ class Config:
     )
     log_bytes: int = 2_000_000
     resume: bool = False
+    reference_roots: tuple[Path, ...] = ()
     deadline_wall: float | None = None
     model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", ""))
     base_url: str = field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", ""))

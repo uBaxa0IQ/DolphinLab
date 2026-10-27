@@ -22,11 +22,17 @@ class RuntimeLimits(BaseModel):
     api_budget: float | None = Field(default=None, gt=0)
 
 
+class ConversationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    api_budget: float = Field(default=0, ge=0)
+
+
 class ProjectPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(default=0, ge=0)
     strategy: Strategy = Field(default_factory=Strategy)
     limits: RuntimeLimits = Field(default_factory=RuntimeLimits)
+    conversation: ConversationPolicy = Field(default_factory=ConversationPolicy)
 
 
 def context_message(raw: dict):

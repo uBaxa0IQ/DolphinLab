@@ -3,7 +3,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from dolphinlab.api.dependencies import execution_enabled
-from dolphinlab.infrastructure.database import Event, GoalRevision, InputFile, Run
+from dolphinlab.infrastructure.database import (
+    ConversationAccount,
+    Event,
+    GoalRevision,
+    InputFile,
+    ProjectPolicyRecord,
+    Run,
+)
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 
@@ -37,6 +44,8 @@ def message_view(message):
         "directive": message.directive,
         "status": message.status,
         "error": message.error,
+        "intent": message.intent,
+        "reply_to_id": message.reply_to_id,
     }
 
 
@@ -122,6 +131,8 @@ def project_view(db, project):
         .order_by(GoalRevision.revision.desc())
         .limit(1)
     )
+    conversation = db.get(ConversationAccount, project.id)
+    policy_record = db.get(ProjectPolicyRecord, project.id)
     return {
         "id": project.id,
         "name": project.name,
@@ -134,6 +145,12 @@ def project_view(db, project):
         "files": [file_view(f) for f in files],
         "latest_run": run_view(latest) if latest else None,
         "current_goal": goal_view(goal) if goal else None,
+        "conversation_usage": conversation.usage if conversation else {},
+        "conversation_budget": (
+            policy_record.policy.get("conversation", {}).get("api_budget", 0)
+            if policy_record
+            else 0
+        ),
         "events": [
             {
                 "id": str(e.seq),

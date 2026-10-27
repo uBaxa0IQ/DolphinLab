@@ -2954,6 +2954,79 @@ h1 {
   margin-bottom: 20px;
   background: #fffdf8;
 }
+.chat-intent-label {
+  display: grid;
+  gap: 7px;
+  font-size: 10px;
+  color: #827967;
+  margin-bottom: 12px;
+}
+.conversation-cost {
+  font-size: 10px;
+  color: #827967;
+  line-height: 1.5;
+}
+.chat-intent-label select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ded7c8;
+  border-radius: 6px;
+  color: #514c40;
+  background: #fffdf8;
+  font: inherit;
+  font-size: 11px;
+}
+.chat-intent-label small {
+  line-height: 1.5;
+}
+.question-evidence {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid #e6dfd1;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.question-evidence summary {
+  cursor: pointer;
+  color: #68724d;
+}
+.question-evidence p {
+  white-space: pre-wrap;
+}
+.question-evidence small {
+  color: #827967;
+}
+.project-memory {
+  margin: 20px 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.project-memory summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.project-memory article {
+  padding: 12px 0;
+  border-bottom: 1px solid #e6dfd1;
+  overflow-wrap: anywhere;
+}
+.project-memory article p {
+  white-space: pre-wrap;
+}
+.project-memory small {
+  color: #827967;
+}
+.project-memory blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 2px solid #8d9871;
+  color: #827967;
+}
+.project-memory .memory-historical {
+  color: #827967;
+}
 .research-heading {
   display: flex;
   justify-content: space-between;

@@ -292,7 +292,9 @@ class PlatformRuntime(Runtime):
             ).all()
             if not self.pause_requested:
                 for directive in directives:
-                    if directive.run_id and directive.run_id != run.id:
+                    if directive.run_id != run.id or (
+                        directive.iteration_id and directive.iteration_id != run.iteration_id
+                    ):
                         continue
                     db.add(
                         ResearchMail(

@@ -1,5 +1,6 @@
 export type ProjectPolicy = {
   revision: number;
+  conversation: { api_budget: number };
   strategy: {
     exploration: "focused" | "balanced" | "exploratory";
     guidance: string;
@@ -80,6 +81,51 @@ export type ChatMessage = {
   error?: string;
   directive_status?: string;
   directive_decision?: string;
+  intent?: ChatIntent;
+  reply_to_id?: string | null;
+  evidence?: PMEvidence[];
+};
+export type ChatIntent = "question" | "instruction" | "followup";
+export type PMEvidence = {
+  id: string;
+  kind: string;
+  result: {
+    error?: string;
+    name?: string;
+    input_id?: string;
+    sha256?: string;
+    operation?: string;
+    metric?: string;
+    column?: string;
+    columns?: string[];
+    rows_scanned?: number;
+    matched_rows?: number;
+    excluded_empty_values?: number;
+    truncated?: boolean;
+    total_groups?: number;
+    groups?: {
+      group: Record<string, string>;
+      value: string | number | null;
+      non_null_values: number;
+    }[];
+    rows?: Record<string, string>[];
+    filters?: { column: string; operator: string; value: string | null }[];
+    sequence?: number;
+    iteration_id?: string;
+  };
+};
+export type MemoryRecord = {
+  id: string;
+  text: string;
+  kind: string;
+  scope: string;
+  status: string;
+  current: boolean;
+  superseded: boolean;
+  source_quote?: string | null;
+  message_id: string;
+  query_id?: string | null;
+  input_ids: string[];
 };
 export type ResearchRun = {
   id: string;
@@ -117,6 +163,8 @@ export type Project = {
   files: InputFile[];
   latest_run?: ResearchRun | null;
   current_goal?: GoalRevision | null;
+  conversation_usage?: ResearchRun["usage"];
+  conversation_budget?: number;
 };
 
 export type GoalSpec = {
@@ -132,7 +180,7 @@ export type GoalRevision = {
   project_id: string;
   revision: number;
   goal: GoalSpec;
-  origin: "user" | "project" | "legacy";
+  origin: "user" | "project" | "legacy" | "pm";
   created: string;
 };
 export type ResearchIteration = {

@@ -44,6 +44,7 @@ import { api } from "../lib/api";
 import { size } from "../lib/format";
 import type {
   ChatMessage,
+  ChatIntent,
   Experiment,
   Project,
   Team,
@@ -101,7 +102,11 @@ export default function App() {
   const [demoChats, setDemoChats] = useState(readDemoChat);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [directive, setDirective] = useState(false);
+  const [chatIntent, setChatIntent] = useState<ChatIntent>("question");
+  const directive = chatIntent === "instruction";
+  function setDirective(value: boolean) {
+    setChatIntent(value ? "instruction" : "question");
+  }
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [chatMobile, setChatMobile] = useState(false);
@@ -298,7 +303,7 @@ export default function App() {
       return;
     }
     try {
-      const message = await api.send(id, content, isDirective);
+      const message = await api.send(id, content, isDirective, chatIntent);
       if (selectedRef.current === id)
         setMessages((before) =>
           before.some((m) => m.id === message.id)
@@ -962,6 +967,9 @@ export default function App() {
         messages={messages}
         draft={draft}
         directive={directive}
+        intent={chatIntent}
+        onIntent={setChatIntent}
+        onHistory={() => setTab("runs")}
         error={chatError}
         chatEnd={chatEnd}
         onClose={() => setChatMobile(false)}

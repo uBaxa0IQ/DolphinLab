@@ -1,5 +1,6 @@
 """Validated HTTP request contracts."""
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -63,6 +64,11 @@ class CreateMessage(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
     directive: bool = False
     client_id: UUID | None = None
+    intent: Literal["question", "instruction", "followup"] | None = None
+
+    @property
+    def resolved_intent(self):
+        return self.intent or ("instruction" if self.directive else "question")
 
     @field_validator("content")
     @classmethod

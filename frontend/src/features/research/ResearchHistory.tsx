@@ -16,6 +16,7 @@ import type {
   ResearchIteration,
 } from "../../types";
 import { statusLabels } from "./RunPanel";
+import ProjectMemory from "./ProjectMemory";
 
 const terminal = new Set(["completed", "stopped", "failed"]);
 const lines = (value: string) =>
@@ -293,6 +294,10 @@ export default function ResearchHistory({
       )}
       {expanded && (
         <>
+          <ProjectMemory
+            projectId={project.id}
+            eventId={project.events[0]?.id}
+          />
           <div className="research-heading research-iterations-heading">
             <h3>
               <History size={15} /> Итерации

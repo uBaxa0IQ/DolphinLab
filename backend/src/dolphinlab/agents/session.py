@@ -43,6 +43,52 @@ class ResearchSession:
         if task.exists():
             return task
         task_dir.mkdir(parents=True, exist_ok=True)
+        context_path = task_dir / "project-context.json"
+        project_context = run.project_context or {}
+        context_path.write_text(
+            json.dumps(project_context, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        context_index = {
+            "full_snapshot": str(context_path),
+            "memory": [
+                {
+                    **{
+                        key: item.get(key)
+                        for key in ("id", "kind", "status", "current", "message_id", "query_id")
+                    },
+                    "excerpt": item.get("text", "")[:400],
+                }
+                for item in project_context.get("memory", [])[:10]
+            ],
+            "historical_memory": [
+                {
+                    "id": item["id"],
+                    "status": item["status"],
+                    "excerpt": item.get("text", "")[:400],
+                    "current": False,
+                }
+                for item in project_context.get("historical_memory", [])[:5]
+            ],
+            "previous_runs": [
+                {
+                    "id": item["id"],
+                    "iteration_id": item["iteration_id"],
+                    "status": item["status"],
+                    "evidence_root": str(RUNS_ROOT / item["id"]),
+                }
+                for item in project_context.get("previous_runs", [])
+            ],
+            "findings": [
+                {
+                    "id": item["id"],
+                    "run_id": item["run_id"],
+                    "claim_status": item["claim_status"],
+                    "excerpt": item.get("text", "")[:400],
+                }
+                for item in project_context.get("findings", [])[:5]
+            ],
+            "notice": "Excerpts are an index, not full evidence. Read the saved snapshot and exact source files as needed.",
+        }
         descriptions = [run.task_description]
         files = []
         for entry in run.inputs:
@@ -66,7 +112,9 @@ class ResearchSession:
             "\n\n".join(descriptions)
             + "\n\n# Provided immutable input files\n"
             + json.dumps(files, ensure_ascii=False, indent=2)
-            + "\n\nUse these provided paths rather than historical paths in the task text. Produce candidate submission.csv in JOB_DIR and register it for independent review. The runtime publishes the approved file beside task.md; do not overwrite it from experiment code.\n",
+            + "\n\nUse these provided paths rather than historical paths in the task text. Produce candidate submission.csv in JOB_DIR and register it for independent review. The runtime publishes the approved file beside task.md; do not overwrite it from experiment code.\n"
+            + "\n\n# Saved project context (historical claims retain their status)\n"
+            + json.dumps(context_index, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return task
@@ -142,6 +190,10 @@ class ResearchSession:
                 **connection,
             )
             config.platform_parallel_jobs = limits["parallel_jobs"]
+            config.reference_roots = tuple(
+                (RUNS_ROOT / entry["id"]).resolve()
+                for entry in (run.project_context or {}).get("previous_runs", [])
+            )
             client = self.clients.create(config, run.id)
             async with httpx.AsyncClient(timeout=20) as http:
                 response = await http.get(

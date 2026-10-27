@@ -7,7 +7,8 @@ from sqlalchemy import select, text
 
 from dolphinlab.agents.project_manager import ProjectManager
 from dolphinlab.agents.session import ResearchSession
-from dolphinlab.infrastructure.database import Message, Run, Session, engine
+from dolphinlab.infrastructure.conversation_usage import recover_reservations
+from dolphinlab.infrastructure.database import ConversationAccount, Message, Run, Session, engine
 from dolphinlab.infrastructure.model_clients import ModelClientFactory
 
 ENABLED = os.getenv("ENABLE_MODEL_CALLS", "false").lower() == "true"
@@ -78,6 +79,8 @@ async def main():
         async with AsyncPostgresSaver.from_conn_string(uri) as saver:
             await saver.setup()
             with Session.begin() as db:
+                for account in db.scalars(select(ConversationAccount)):
+                    account.usage = recover_reservations(account.usage)
                 for run in db.scalars(select(Run)):
                     usage = dict(run.usage or {})
                     if usage.get("pending_requests"):

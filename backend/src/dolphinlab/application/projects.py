@@ -13,12 +13,16 @@ from dolphinlab.domain.policy import ProjectPolicy
 from dolphinlab.domain.research import GoalSpec
 from dolphinlab.infrastructure.database import (
     DATA_ROOT,
+    ContextManifest,
+    ConversationAccount,
     Directive,
     Event,
     GoalRevision,
     InputFile,
     Message,
+    PMAction,
     Project,
+    ProjectMemory,
     ProjectPolicyRecord,
     ResearchEvent,
     ResearchIteration,
@@ -145,6 +149,8 @@ class ProjectService(Service):
                     db.execute(text(f"DELETE FROM {table} WHERE {condition}"), parameters)
             for model in (ResearchReceipt, ResearchMail, ResearchEvent, ResearchObject):
                 db.execute(delete(model).where(model.run_id.in_(run_ids)))
+            for model in (ProjectMemory, ContextManifest, PMAction, ConversationAccount):
+                db.execute(delete(model).where(model.project_id == project_id))
             db.execute(delete(Directive).where(Directive.project_id == project_id))
             for model in (Message, InputFile, Event, ProjectPolicyRecord, Run):
                 db.execute(delete(model).where(model.project_id == project_id))

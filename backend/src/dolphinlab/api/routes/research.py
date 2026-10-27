@@ -1,12 +1,42 @@
 """Versioned goals and research iteration history."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import select
 
 from dolphinlab.api.schemas import CreateGoal, CreateIteration
+from dolphinlab.application.knowledge import KnowledgeService
 from dolphinlab.application.research import ResearchService
+from dolphinlab.infrastructure.database import PMAction, Session
 
 router = APIRouter(prefix="/api", tags=["research"])
 service = ResearchService()
+knowledge = KnowledgeService()
+
+
+@router.get("/projects/{project_id}/memory")
+def list_memory(project_id: str, include_stale: bool = False, offset: int = Query(default=0, ge=0)):
+    return knowledge.list_memory(project_id, include_stale=include_stale, offset=offset)
+
+
+@router.get("/projects/{project_id}/messages/{message_id}/actions/{action_id}")
+def read_action(project_id: str, message_id: str, action_id: str):
+    with Session() as db:
+        action = db.scalar(
+            select(PMAction).where(
+                PMAction.project_id == project_id,
+                PMAction.message_id == message_id,
+                PMAction.id == action_id,
+            )
+        )
+        if not action:
+            raise HTTPException(404, "Расчёт не найден в этом проекте")
+        return {
+            "id": action.id,
+            "kind": action.kind,
+            "result": action.result,
+            "arguments": action.arguments,
+            "created": action.created.isoformat(),
+        }
 
 
 @router.get("/projects/{project_id}/goals")

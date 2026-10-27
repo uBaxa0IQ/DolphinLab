@@ -13,6 +13,7 @@ import type { Project, ProjectPolicy } from "../../types";
 
 const defaults = (): ProjectPolicy => ({
   revision: 0,
+  conversation: { api_budget: 0 },
   strategy: { exploration: "balanced", guidance: "" },
   limits: {
     max_teams: 6,
@@ -361,13 +362,40 @@ export default function ProjectSettingsPanel({
                   <span>API</span>
                 </span>
               </label>
+              <label className="policy-limit-row">
+                <span>
+                  <strong>Бюджет общения PM</strong>
+                  <small>
+                    В валюте тарифа, отдельно от исследования. 0 — общение с
+                    моделью выключено. Расход сохраняется между итерациями.
+                  </small>
+                </span>
+                <span className="policy-number">
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    aria-label="Бюджет общения PM"
+                    value={policy.conversation?.api_budget ?? 0}
+                    onChange={(event) =>
+                      setPolicy((before) => ({
+                        ...before,
+                        conversation: {
+                          api_budget: Number(event.target.value),
+                        },
+                      }))
+                    }
+                  />
+                  <span>API</span>
+                </span>
+              </label>
             </div>
           </div>
           <div className="policy-effective">
             <span className="tiny-dot" />
             {project.demo
               ? "Демо · настройки сохраняются в этом браузере"
-              : "Настройки для следующего запуска"}
+              : "Исследование — со следующего запуска; бюджет общения — сразу"}
           </div>
           {error && (
             <p className="form-error" role="alert">

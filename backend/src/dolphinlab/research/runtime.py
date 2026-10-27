@@ -680,7 +680,7 @@ class Runtime(ABC):
         if not path.is_absolute():
             path = self.config.task_path.parent / path
         path = path.resolve()
-        roots = (self.config.task_path.parent, self.config.work_dir)
+        roots = (self.config.task_path.parent, self.config.work_dir, *self.config.reference_roots)
         if not any(path.is_relative_to(root) for root in roots):
             raise ValueError("Read paths must be inside the task or run directory")
         return path

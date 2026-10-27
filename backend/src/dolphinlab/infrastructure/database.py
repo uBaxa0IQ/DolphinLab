@@ -67,6 +67,7 @@ class InputFile(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (UniqueConstraint("project_id", "id", name="uq_message_project_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     role: Mapped[str] = mapped_column(String(20))
@@ -75,6 +76,9 @@ class Message(Base):
     status: Mapped[str] = mapped_column(String(24), default="pending")
     created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intent: Mapped[str] = mapped_column(String(20), default="question")
+    context_binding: Mapped[dict] = mapped_column(JSON, default=dict)
+    reply_to_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class Directive(Base):
@@ -87,6 +91,7 @@ class Directive(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     decision: Mapped[str] = mapped_column(Text, default="")
     run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    iteration_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class Event(Base):
@@ -185,6 +190,7 @@ class Run(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     iteration_id: Mapped[str] = mapped_column(String(36), index=True)
     goal_snapshot: Mapped[dict] = mapped_column(JSON)
+    project_context: Mapped[dict] = mapped_column(JSON, default=dict)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
@@ -239,3 +245,77 @@ class ResearchReceipt(Base):
     agent: Mapped[str] = mapped_column(String(120), primary_key=True)
     call_id: Mapped[str] = mapped_column(String(160), primary_key=True)
     result: Mapped[dict] = mapped_column(JSON)
+
+
+class PMAction(Base):
+    __tablename__ = "pm_actions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_pm_action_project_id"),
+        ForeignKeyConstraint(
+            ["project_id", "message_id"],
+            ["messages.project_id", "messages.id"],
+            name="fk_pm_action_message_project",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    message_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    arguments: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ProjectMemory(Base):
+    __tablename__ = "project_memory"
+    __table_args__ = (
+        UniqueConstraint("project_id", "id", name="uq_memory_project_id"),
+        ForeignKeyConstraint(
+            ["project_id", "message_id"],
+            ["messages.project_id", "messages.id"],
+            name="fk_memory_message_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "goal_revision_id"],
+            ["project_goals.project_id", "project_goals.id"],
+            name="fk_memory_goal_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "source_action_id"],
+            ["pm_actions.project_id", "pm_actions.id"],
+            name="fk_memory_action_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "supersedes_id"],
+            ["project_memory.project_id", "project_memory.id"],
+            name="fk_memory_supersedes_project",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    message_id: Mapped[str] = mapped_column(String(36))
+    goal_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    scope: Mapped[str] = mapped_column(String(20))
+    kind: Mapped[str] = mapped_column(String(20))
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20))
+    source_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_action_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    input_ids: Mapped[list] = mapped_column(JSON, default=list)
+    supersedes_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ContextManifest(Base):
+    __tablename__ = "context_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    message_id: Mapped[str] = mapped_column(ForeignKey("messages.id"), index=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ConversationAccount(Base):
+    __tablename__ = "conversation_accounts"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    usage: Mapped[dict] = mapped_column(JSON, default=dict)

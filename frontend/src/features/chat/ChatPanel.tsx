@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { FormEvent, Ref } from "react";
-import type { ChatMessage, Project } from "../../types";
+import type { ChatIntent, ChatMessage, PMEvidence, Project } from "../../types";
 
 type Props = {
   project: Project;
@@ -23,6 +23,9 @@ type Props = {
   messages: ChatMessage[];
   draft: string;
   directive: boolean;
+  intent: ChatIntent;
+  onIntent: (value: ChatIntent) => void;
+  onHistory: () => void;
   error: string;
   chatEnd: Ref<HTMLDivElement>;
   onClose: () => void;
@@ -43,6 +46,9 @@ export default function ChatPanel({
   messages,
   draft,
   directive,
+  intent,
+  onIntent,
+  onHistory,
   error,
   chatEnd,
   onClose,
@@ -75,7 +81,7 @@ export default function ChatPanel({
             onNotice(
               project.demo
                 ? "Демочат: ответы подготовлены для просмотра дизайна, модель не вызывается."
-                : "Сообщения сохраняются на сервере. Ответы PM будут доступны после подключения исполнения агентов.",
+                : "PM отвечает на вопросы по данным, сохраняет договорённости и помогает подготовить продолжение. Вопрос не запускает исследование. Общение использует отдельный бюджет проекта.",
             )
           }
         >
@@ -160,6 +166,14 @@ export default function ChatPanel({
                   : ""}
               </div>
             )}
+            {(message.role === "assistant" || message.status === "failed") &&
+              message.evidence?.map((evidence) => (
+                <QuestionEvidence
+                  key={evidence.id}
+                  evidence={evidence}
+                  onHistory={onHistory}
+                />
+              ))}
           </div>
         ))}
         {sending && (
@@ -172,6 +186,35 @@ export default function ChatPanel({
         <div ref={chatEnd} />
       </div>
       <div className="chat-compose-area">
+        {!project.demo && executionEnabled && (
+          <p className="conversation-cost">
+            {!project.conversation_budget
+              ? "Бюджет PM не задан — ответы модели выключены. Настрой его в параметрах проекта."
+              : `Учтено за общение: ${(project.conversation_usage?.accounted_cost || 0).toLocaleString("ru-RU", { maximumFractionDigits: 4 })} из ${project.conversation_budget} ${project.conversation_usage?.currency || "в валюте тарифа"}`}
+          </p>
+        )}
+        {!project.demo && (
+          <label className="chat-intent-label">
+            Режим сообщения
+            <select
+              value={intent}
+              onChange={(event) => onIntent(event.target.value as ChatIntent)}
+              aria-label="Режим сообщения"
+              disabled={sending}
+            >
+              <option value="question">Вопрос по данным</option>
+              <option value="instruction">Поручение текущему запуску</option>
+              <option value="followup">Следующая итерация</option>
+            </select>
+            <small>
+              {intent === "question"
+                ? "Ответ или небольшой расчёт без запуска исследования."
+                : intent === "followup"
+                  ? "PM уточнит цель и подготовит итерацию. Запуск — отдельно."
+                  : "Поручение адресуется текущему запуску и не переносится в следующий."}
+            </small>
+          </label>
+        )}
         {project.demo && (
           <div className="suggestions">
             <button
@@ -221,7 +264,9 @@ export default function ChatPanel({
             placeholder={
               directive
                 ? "Что нужно изменить в работе?"
-                : "Спроси или предложи идею…"
+                : intent === "followup"
+                  ? "Что проверить в следующей итерации?"
+                  : "Задай вопрос по данным…"
             }
             rows={2}
             maxLength={20000}
@@ -272,10 +317,115 @@ export default function ChatPanel({
           {project.demo
             ? "Деморежим · без вызовов модели"
             : executionEnabled
-              ? "PM общается с техлидом · история сохраняется"
+              ? "Вопросы и расчёты · отдельный бюджет PM"
               : "Сообщения сохраняются · вызовы модели отключены"}
         </div>
       </div>
     </aside>
+  );
+}
+
+function QuestionEvidence({
+  evidence,
+  onHistory,
+}: {
+  evidence: PMEvidence;
+  onHistory: () => void;
+}) {
+  const result = evidence.result;
+  const operators: Record<string, string> = {
+    eq: "=",
+    ne: "≠",
+    gt: ">",
+    gte: "≥",
+    lt: "<",
+    lte: "≤",
+    is_null: "пусто",
+    not_null: "не пусто",
+  };
+  if (evidence.kind === "prepare_followup" && !result.error)
+    return (
+      <div className="question-evidence">
+        <p>
+          Подготовлена итерация {result.sequence}. Вычисления ещё не запущены.
+        </p>
+        <button className="button secondary small" onClick={onHistory}>
+          Открыть историю
+        </button>
+      </div>
+    );
+  const metricNames: Record<string, string> = {
+    count: "Количество",
+    sum: "Сумма",
+    mean: "Среднее",
+    min: "Минимум",
+    max: "Максимум",
+  };
+  return (
+    <details className="question-evidence">
+      <summary>
+        {result.error
+          ? "Расчёт не выполнен"
+          : `Расчёт · ${result.name || "данные"}`}
+      </summary>
+      {result.error ? (
+        <p>{result.error}</p>
+      ) : (
+        <>
+          <p>
+            {metricNames[result.metric || ""] ||
+              (result.operation === "schema"
+                ? "Структура таблицы"
+                : "Просмотр данных")}
+            {result.column ? `: ${result.column}` : ""}
+          </p>
+          {result.groups?.map((group, index) => (
+            <p key={index}>
+              <strong>
+                {Object.entries(group.group)
+                  .map(([key, value]) => `${key}: ${value}`)
+                  .join(", ") || "Всего"}
+              </strong>
+              : {group.value ?? "нет значений"}
+            </p>
+          ))}
+          {result.operation === "schema" && <p>{result.columns?.join(", ")}</p>}
+          {result.rows?.map((row, index) => (
+            <p key={index}>
+              {Object.entries(row)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(" · ")}
+            </p>
+          ))}
+          {result.operation === "preview" && (
+            <p>
+              Предпросмотр первых {result.rows?.length || 0} строк; значения
+              ячеек показаны до 200 символов.
+            </p>
+          )}
+          <p>
+            Прочитано строк: {result.rows_scanned}. После фильтров:{" "}
+            {result.matched_rows}.
+          </p>
+          {result.filters?.map((filter, index) => (
+            <p key={index}>
+              {filter.column} {operators[filter.operator] || filter.operator}{" "}
+              {filter.value || ""}
+            </p>
+          ))}
+          {!!result.excluded_empty_values && (
+            <p>Пропущено пустых значений: {result.excluded_empty_values}.</p>
+          )}
+          {result.truncated && (
+            <p>Показаны первые 50 из {result.total_groups} групп.</p>
+          )}
+          <small>
+            Источник: {result.input_id?.slice(0, 8)} · расчёт{" "}
+            {evidence.id.slice(0, 8)}. Результат вычисления, без независимой
+            проверки.
+          </small>
+        </>
+      )}
+    </details>
   );
 }

@@ -25,6 +25,7 @@ from dolphinlab.infrastructure.database import (
 )
 
 from .base import Service
+from .knowledge import run_context
 from .research import append_iteration, latest_goal, latest_iteration, replay
 
 
@@ -132,6 +133,13 @@ class RunService(Service):
                 project_id=project_id,
                 iteration_id=iteration.id,
                 goal_snapshot=snapshot.model_dump(mode="json"),
+                project_context=run_context(
+                    db,
+                    project_id,
+                    goal.id,
+                    {file.id for file in files},
+                    iteration.parent_iteration_id,
+                ),
                 request_id=str(body.client_id) if body.client_id else None,
                 request_hash=request_fingerprint(body) if body.client_id else None,
                 task_description=snapshot.task_text(),

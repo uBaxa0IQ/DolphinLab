@@ -1,5 +1,7 @@
 import type {
   ChatMessage,
+  ChatIntent,
+  MemoryRecord,
   GoalRevision,
   GoalSpec,
   InputFile,
@@ -115,13 +117,22 @@ export const api = {
   create: (name: string, description: string) =>
     request<Project>("/projects", json({ name, description })),
   messages: (id: string) => request<ChatMessage[]>(`/projects/${id}/messages`),
-  send: async (id: string, content: string, directive: boolean) => {
-    const fingerprint = JSON.stringify([id, content, directive]);
+  memory: (id: string, offset = 0) =>
+    request<MemoryRecord[]>(
+      `/projects/${id}/memory?include_stale=true&offset=${offset}`,
+    ),
+  send: async (
+    id: string,
+    content: string,
+    directive: boolean,
+    intent?: ChatIntent,
+  ) => {
+    const fingerprint = JSON.stringify([id, content, directive, intent]);
     const client_id = pendingDeliveries.get(fingerprint) || crypto.randomUUID();
     pendingDeliveries.set(fingerprint, client_id);
     const message = await request<ChatMessage>(
       `/projects/${id}/messages`,
-      json({ content, directive, client_id }),
+      json({ content, directive, client_id, intent }),
     );
     pendingDeliveries.delete(fingerprint);
     return message;
