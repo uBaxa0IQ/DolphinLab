@@ -18,7 +18,6 @@ import {
   Plus,
   Search,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Upload,
   Users,
@@ -38,6 +37,7 @@ import ExperimentRows from "../features/research/ExperimentRows";
 import RunPanel, { statusLabels } from "../features/research/RunPanel";
 import ResearchHistory from "../features/research/ResearchHistory";
 import TeamCard from "../features/research/TeamCard";
+import TeamStaffing from "../features/research/TeamStaffing";
 import ProjectSettingsPanel from "../features/settings/ProjectSettingsPanel";
 import SettingsPanel from "../features/settings/SettingsPanel";
 import { api } from "../lib/api";
@@ -1113,35 +1113,27 @@ export default function App() {
           <div className="team-modal-title">
             <h2>{team.name}</h2>
             <Badge tone={team.state === "running" ? "green" : "neutral"}>
-              {team.state === "running" ? "В работе" : "Ожидание"}
+              {team.state === "running"
+                ? "В работе"
+                : team.state === "closed"
+                  ? "Завершена"
+                  : "Ожидание"}
             </Badge>
           </div>
           <p className="muted">{team.focus}</p>
+          {team.composition_reason && (
+            <p className="muted">
+              Почему такой состав: {team.composition_reason}
+            </p>
+          )}
+          {team.coordinator === false && (
+            <p className="muted">Координация напрямую через техлида</p>
+          )}
           <div className="team-current">
             <span className="eyebrow">СЕЙЧАС</span>
             <p>{team.current}</p>
           </div>
-          <h3 className="member-heading">
-            Участники <span>{team.members.length}</span>
-          </h3>
-          <div className="member-list">
-            {team.members.map((m) => (
-              <div key={m.name} className="member-row">
-                <span className={`avatar ${m.color}`}>{m.name[0]}</span>
-                <div>
-                  <strong>
-                    {m.name}
-                    <span>{m.role}</span>
-                  </strong>
-                  <p>{m.state}</p>
-                </div>
-                <span className={`tiny-dot ${team.state}`} />
-              </div>
-            ))}
-          </div>
-          <div className="team-modal-footer">
-            <ShieldCheck size={15} />В команде есть независимый evaluator
-          </div>
+          <TeamStaffing team={team} />
         </Modal>
       )}
       {experiment && (

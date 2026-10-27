@@ -385,10 +385,12 @@ async def prepare_context(agent, state, client, config, store, tools):
 def build_context(agent, state):
     stable = "\nORIGINAL TASK (verbatim):\n" + state.get("original_task", "")
     stable += "\nALLOWED STACK:\n" + state.get("allowed_stack", "")
-    dynamic = {k: v for k, v in state.items() if k not in ("original_task", "allowed_stack")}
+    dynamic = {
+        k: v for k, v in state.items() if k not in ("original_task", "allowed_stack", "role_prompt")
+    }
     # Keep changing boards/clocks out of the conversation prefix. A provider that caches
     # prefixes can reuse the stable instructions/history; no cache behavior is assumed.
-    system = prompt(agent["role"]) + stable
+    system = state.get("role_prompt", prompt(agent["role"])) + stable
     messages = [{"role": "system", "content": system}]
     if agent.get("summary"):
         messages.append(

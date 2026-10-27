@@ -23,6 +23,7 @@ from dolphinlab.infrastructure.database import (
     WorkspaceSettings,
     now,
 )
+from dolphinlab.research.staffing import freeze_profiles
 
 from .base import Service
 from .knowledge import run_context
@@ -133,6 +134,7 @@ class RunService(Service):
                 project_id=project_id,
                 iteration_id=iteration.id,
                 goal_snapshot=snapshot.model_dump(mode="json"),
+                role_catalog=freeze_profiles(),
                 project_context=run_context(
                     db,
                     project_id,

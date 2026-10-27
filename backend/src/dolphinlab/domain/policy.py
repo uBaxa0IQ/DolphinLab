@@ -14,6 +14,7 @@ class Strategy(BaseModel):
 class RuntimeLimits(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     max_teams: int = Field(default=6, ge=1, le=12)
+    max_agents: int = Field(default=25, ge=2, le=100)
     parallel_jobs: int = Field(default=2, ge=1, le=32)
     parallel_model_calls: int = Field(default=6, ge=1, le=32)
     cpu_total: int = Field(default=8, ge=1, le=64)

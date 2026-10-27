@@ -1,5 +1,6 @@
 """Persistence contract used by the research coordinator and its collaborators."""
 
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -7,6 +8,8 @@ from typing import Any, Callable, Protocol
 class ResearchStore(Protocol):
     root: Path
     on_close: Callable[[], None] | None
+
+    def transaction(self) -> AbstractContextManager: ...
 
     def put(self, kind: str, ident: str, data: dict) -> None: ...
     def get(self, kind: str, ident: str) -> dict: ...

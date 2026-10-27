@@ -48,6 +48,7 @@ class Config:
     log_bytes: int = 2_000_000
     resume: bool = False
     reference_roots: tuple[Path, ...] = ()
+    role_catalog: list[dict] = field(default_factory=list)
     deadline_wall: float | None = None
     model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", ""))
     base_url: str = field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", ""))
@@ -59,9 +60,9 @@ class Config:
         self.work_dir = self.work_dir.resolve()
         if self.seconds <= 0 or self.cpus < 1 or self.ram_mb < 128:
             raise ValueError("Invalid time or resource budget")
-        if self.llm_concurrency < 1 or self.max_agents < 5 or self.request_timeout <= 0:
+        if self.llm_concurrency < 1 or self.max_agents < 2 or self.request_timeout <= 0:
             raise ValueError(
-                "Need positive concurrency/timeout and capacity for tech lead plus a four-role team"
+                "Need positive concurrency/timeout and capacity for tech lead plus one specialist"
             )
         if (
             min(

@@ -191,6 +191,7 @@ class Run(Base):
     iteration_id: Mapped[str] = mapped_column(String(36), index=True)
     goal_snapshot: Mapped[dict] = mapped_column(JSON)
     project_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    role_catalog: Mapped[list] = mapped_column(JSON, default=list)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="queued", index=True)

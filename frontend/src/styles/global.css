@@ -1548,6 +1548,14 @@ h1 {
   color: #ac9d81;
   margin-top: 4px;
 }
+.staffing-history {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.staffing-history p {
+  margin: 8px 0;
+}
 .team-modal-footer {
   display: flex;
   gap: 7px;

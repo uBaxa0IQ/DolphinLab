@@ -67,6 +67,8 @@ class MemoryManager:
                 "created": time.time(),
             }
             record["claim_status"] = args.get("claim_status", "reported")
+            if record["claim_status"] not in ("hypothesis", "reported"):
+                raise ValueError("Authors cannot confer verification on their own findings")
             snapshots = []
             for reference in record["references"]:
                 try:
@@ -101,6 +103,8 @@ class MemoryManager:
             record = self.runtime.store.get("finding", args["finding_id"])
             if agent["role"] != "evaluator" or record["team_id"] != agent["team_id"]:
                 raise ValueError("The originating team's evaluator qualifies its findings")
+            if record["author"] == agent["id"]:
+                raise ValueError("An evaluator cannot independently approve their own finding")
             record.setdefault("assessments", []).append(
                 {
                     "author": agent["id"],

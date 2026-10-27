@@ -1,5 +1,9 @@
 """Concrete role-scoped operations: required fields are visible to the model."""
 
+from copy import deepcopy
+
+from dolphinlab.domain.staffing import Handover
+
 S = {"type": "string"}
 N = {"type": "number"}
 INTEGER = {"type": "integer"}
@@ -472,25 +476,164 @@ CATALOG = [
 ]
 
 
-def tools_for(role):
-    return [item["schema"] for item in CATALOG if item["roles"] is None or role in item["roles"]]
+# Preserve the exact legacy catalog for resumed runs; new runs freeze revision 2.
+LEGACY_CATALOG = deepcopy(CATALOG)
+for item in CATALOG:
+    name = item["schema"]["function"]["name"]
+    if item["roles"] and "data_engineer" in item["roles"]:
+        item["roles"].add("data_analyst")
+        if name not in ("run_python", "run_script"):
+            item["roles"].add("report_editor")
+    if name == "create_team":
+        item["schema"]["function"]["description"] = (
+            "Choose explicit specialists for this research question. No predefined team is added. "
+            "A single specialist reports to tech lead; coordinator=true creates a team lead. "
+            "Include a reason for composition. Independent evaluators can be shared across directions."
+        )
+        params = item["schema"]["function"]["parameters"]
+        params["properties"].update(
+            {
+                "members": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "role": {
+                                "enum": [
+                                    "ml_engineer",
+                                    "data_engineer",
+                                    "data_analyst",
+                                    "evaluator",
+                                    "report_editor",
+                                ]
+                            },
+                            "assignment": S,
+                        },
+                        "required": ["role", "assignment"],
+                    },
+                },
+                "coordinator": B,
+                "reason": S,
+            }
+        )
+        params["required"] += ["members", "reason"]
+    if name == "add_specialist":
+        item["schema"]["function"]["description"] = (
+            "Add a missing capability with an explicit assignment and reason; no minimum staffing is assumed."
+        )
+        params = item["schema"]["function"]["parameters"]
+        params["properties"]["role"]["enum"] = [
+            "ml_engineer",
+            "data_engineer",
+            "data_analyst",
+            "evaluator",
+            "report_editor",
+        ]
+        params["properties"]["reason"] = S
+        params["required"].append("reason")
+    if name == "plan_team":
+        item["roles"].add("tech_lead")
+    if name == "recall":
+        item["schema"]["function"]["parameters"]["properties"]["topic"]["enum"] += [
+            "assignment",
+            "assignment_revision",
+            "agent_session",
+            "role_profile",
+            "staffing_change",
+        ]
+CATALOG += [
+    spec(
+        "complete_assignment",
+        "Preserve structured handover for your assignment; requires no active own job. Does not verify results or end the run.",
+        {"handover": Handover.model_json_schema()},
+        ["handover"],
+        route="staffing",
+        fixed={"action": "complete"},
+    ),
+    spec(
+        "retire_specialist",
+        "Retire an idle specialist after its handover; release an agent slot and preserve archives. Cannot retire yourself, a lead or an assigned pending reviewer.",
+        {"team_id": S, "agent_id": S, "reason": S},
+        ["team_id", "agent_id", "reason"],
+        MANAGERS,
+        "team",
+        {"action": "retire"},
+    ),
+    spec(
+        "assign_reviewer",
+        "Assign an independent active evaluator to an ML candidate, including another team's evaluator. Inspect reviewer_load; this grants no approval.",
+        {"candidate_id": S, "reviewer_id": S, "reason": S},
+        ["candidate_id", "reviewer_id", "reason"],
+        MANAGERS,
+        "staffing",
+        {"action": "reviewer"},
+    ),
+]
 
 
-def resolve_call(role, name, arguments):
-    item = next((i for i in CATALOG if i["schema"]["function"]["name"] == name), None)
+def tools_for(role, revision=2):
+    catalog = LEGACY_CATALOG if revision == 1 else CATALOG
+    return [
+        deepcopy(item["schema"])
+        for item in catalog
+        if item["roles"] is None or role in item["roles"]
+    ]
+
+
+def validate_value(value, schema, path="arguments"):
+    """Validate the bounded JSON-schema dialect used by this tool catalog."""
+    import math
+
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{path}: choose one of {schema['enum']}")
+    kind = schema.get("type")
+    checks = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "boolean": isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "number": isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value),
+    }
+    if kind and not checks.get(kind, False):
+        raise ValueError(f"{path}: expected {kind}")
+    if kind == "object":
+        properties = schema.get("properties", {})
+        missing = set(schema.get("required", [])) - set(value)
+        extra = set(value) - set(properties)
+        if missing or (extra and schema.get("additionalProperties") is False):
+            raise ValueError(f"{path}: missing {sorted(missing)}, unexpected {sorted(extra)}")
+        for name, item in value.items():
+            if name in properties:
+                validate_value(item, properties[name], path + "." + name)
+    if kind == "array":
+        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", 100000):
+            raise ValueError(f"{path}: invalid item count")
+        for item in value:
+            validate_value(item, schema.get("items", {}), path + "[]")
+    if kind == "string" and not schema.get("minLength", 0) <= len(value) <= schema.get(
+        "maxLength", 1000000
+    ):
+        raise ValueError(f"{path}: invalid string length")
+
+
+def resolve_call(role, name, arguments, revision=2, schemas=None):
+    catalog = LEGACY_CATALOG if revision == 1 else CATALOG
+    item = next((i for i in catalog if i["schema"]["function"]["name"] == name), None)
     if item is None or (item["roles"] is not None and role not in item["roles"]):
         raise ValueError(f"{name} is unavailable to {role}; use your role's listed operations")
     schema = item["schema"]["function"]["parameters"]
-    missing = [field for field in schema["required"] if field not in arguments]
-    extra = set(arguments) - set(schema["properties"])
-    if missing:
-        raise ValueError(
-            f"{name} requires: {', '.join(schema['required'])}; missing: {', '.join(missing)}"
-        )
-    if extra:
-        raise ValueError(
-            f"{name} does not accept {', '.join(sorted(extra))}; expected fields: {', '.join(schema['properties'])}"
-        )
+    if schemas is not None:
+        saved = next((s for s in schemas if s["function"]["name"] == name), None)
+        if saved is None:
+            raise ValueError("Tool is outside the frozen role profile")
+        schema = saved["function"]["parameters"]
+    validate_value(arguments, schema)
     args = {item["rename"].get(k, k): v for k, v in arguments.items()}
     args.update(item["fixed"])
     if name == "close_team" and args.pop("archive", False):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import itertools
 import time
 from abc import ABC, abstractmethod
@@ -26,11 +27,12 @@ from dolphinlab.research.ledger import ResearchLedger
 from dolphinlab.research.recovery import RunLease, checkpoint, open_run
 from dolphinlab.research.roles import MANAGERS, ROLES
 from dolphinlab.research.timing import Timing
-from dolphinlab.research.tools import resolve_call, tools_for
+from dolphinlab.research.tools import resolve_call
 
 from .candidates import CandidateRegistry
 from .memory import MemoryManager
 from .ports import ResearchStore
+from .staffing import Staffing
 from .teams import TeamManager
 
 
@@ -70,8 +72,11 @@ class Runtime(ABC):
         self.memory = MemoryManager(self)
         self.task_text = config.task_path.read_text(encoding="utf-8")
         restored = self.store.all("agent")
+        self.staffing = Staffing(self, legacy=bool(restored))
         if restored:
             self.agents = {a["id"]: a for a in restored}
+            for saved_agent in restored:
+                self.staffing.bind(saved_agent, legacy=True)
             roots = [a for a in restored if a["role"] == "tech_lead"]
             if len(roots) != 1:
                 self.store.close()
@@ -154,6 +159,17 @@ class Runtime(ABC):
             if active:
                 self.complete_interrupted_calls(agent)
                 state = agent.pop("pre_shutdown_state", agent["state"])
+                if state == "closed":
+                    self.store.put("agent", agent["id"], agent)
+                    continue
+                if self.store.get("assignment", agent["assignment_id"])["state"] == "completed":
+                    agent.update(
+                        state="waiting",
+                        retry_at=0.0,
+                        wake_at=self.config.started + self.config.seconds,
+                    )
+                    self.store.put("agent", agent["id"], agent)
+                    continue
                 agent.update(
                     state="ready"
                     if state != "blocked" or agent["role"] == "tech_lead"
@@ -168,9 +184,9 @@ class Runtime(ABC):
                     "Reconcile restored job/candidate state before issuing work again. Unknown actions were not blindly replayed.",
                 )
 
-    def new_agent(self, role, team_id, supervisor, assignment):
+    def new_agent(self, role, team_id, supervisor, assignment, focus_revision=1):
         if role not in ROLES:
-            raise ValueError("Only fixed catalog roles are allowed")
+            raise ValueError("Only catalog roles are allowed")
         if sum(a["state"] != "closed" for a in self.agents.values()) >= self.config.max_agents:
             raise ValueError("Active agent capacity reached; reuse or close a team")
         ident = uid(role)
@@ -189,7 +205,7 @@ class Runtime(ABC):
             "summary": "",
             "note": "",
             "focus": assignment,
-            "focus_revision": 1,
+            "focus_revision": focus_revision,
             "epoch": 0,
             "turn_count": 0,
             "state": "ready",
@@ -198,7 +214,7 @@ class Runtime(ABC):
             "failures": 0,
         }
         self.agents[ident] = agent
-        self.store.put("agent", ident, agent)
+        self.staffing.bind(agent)
         self.store.send(ident, supervisor or "runtime", assignment)
         return agent
 
@@ -285,6 +301,12 @@ class Runtime(ABC):
                 if full or j["state"] not in TERMINAL
             ],
             "findings": findings if full else findings[-8:],
+            "assignments": [a for a in self.store.all("assignment") if a["team_id"] == team_id][
+                -20:
+            ],
+            "staffing_history": [
+                r for r in self.store.all("staffing_change") if r["team_id"] == team_id
+            ][-20:],
             "finding_count": len(findings),
             "research_progress": self.ledger.signals(team_id),
             "timing": self.timing.view(team),
@@ -310,9 +332,11 @@ class Runtime(ABC):
         visible = [
             c
             for c in all_candidates
-            if agent["role"] == "tech_lead" or c["team_id"] == agent["team_id"]
+            if agent["role"] == "tech_lead"
+            or c["team_id"] == agent["team_id"]
+            or c.get("reviewer_id") == agent["id"]
         ]
-        pending = [c for c in visible if "reviewer" not in c][-8:]
+        pending = [c for c in visible if c.get("review_state") == "pending"][-8:]
         recent = visible[-5:]
         selected = {c["id"]: c for c in pending + recent}
         jobs = self.store.all("job")
@@ -320,6 +344,16 @@ class Runtime(ABC):
             **self.config.public(),
             "agent_id": agent["id"],
             "role": agent["role"],
+            "role_profile": {
+                k: self.staffing.profile(agent)[k] for k in ("id", "revision", "role")
+            },
+            "role_prompt": self.staffing.profile(agent)["prompt"],
+            "role_catalog": [
+                {"role": p["role"], "revision": p["revision"]}
+                for p in self.staffing.profiles.values()
+            ],
+            "assignment": self.store.get("assignment", agent["assignment_id"]),
+            "reviewer_load": self.staffing.reviewer_load(),
             "supervisor": agent["supervisor"],
             "workspace": agent["workspace"],
             "reasoning_effort": agent.get(
@@ -353,12 +387,7 @@ class Runtime(ABC):
             "team_capacity": {
                 "active_agent_slots_free": self.config.max_agents
                 - sum(a["state"] != "closed" for a in self.agents.values()),
-                "agents_per_new_team": 4,
-                "full_team_slots_free": (
-                    self.config.max_agents
-                    - sum(a["state"] != "closed" for a in self.agents.values())
-                )
-                // 4,
+                "staffing": "Explicit members plus an optional coordinator; no fixed minimum quartet",
                 "max_active_agents": self.config.max_agents,
                 "concurrent_model_requests": self.config.llm_concurrency,
             },
@@ -396,6 +425,7 @@ class Runtime(ABC):
                         "team_id",
                         "approved",
                         "reviewer",
+                        "reviewer_id",
                         "job_id",
                         "submission_path",
                         "declared_protocol_id",
@@ -557,7 +587,7 @@ class Runtime(ABC):
         agent["state"] = "running"
         self.store.put("agent", agent["id"], agent)
         try:
-            tools = tools_for(agent["role"])
+            tools = self.tools_for(agent)
             calls = await self.execute_turn(agent, tools)
             if agent.pop("compact_requested", False):
                 try:
@@ -640,7 +670,7 @@ class Runtime(ABC):
                 )
         finally:
             self.complete_interrupted_calls(agent)
-            refresh_context_status(agent, self.state(agent), self.client, tools_for(agent["role"]))
+            refresh_context_status(agent, self.state(agent), self.client, self.tools_for(agent))
             self.store.put("agent", agent["id"], agent)
             request_actor.reset(actor_token)
             request_effort.reset(effort_token)
@@ -695,8 +725,22 @@ class Runtime(ABC):
             )
         return path
 
+    def actor(self, supplied):
+        agent = self.agents.get(supplied["id"])
+        if not agent or agent["state"] == "closed" or supplied.get("role") != agent["role"]:
+            raise ValueError("Unknown, closed or mismatched agent identity")
+        self.staffing.profile(agent)
+        return agent
+
+    def tools_for(self, agent):
+        return copy.deepcopy(self.staffing.profile(agent)["tools"])
+
     async def dispatch(self, agent, name, args):
-        route, resolved = resolve_call(agent["role"], name, args)
+        agent = self.actor(agent)
+        profile = self.staffing.profile(agent)
+        route, resolved = resolve_call(
+            agent["role"], name, args, profile["revision"], profile["tools"]
+        )
         return await self._dispatch_backend(agent, route, resolved)
 
     def journal_message(self, agent, text, kind, references, message_id=None, next_action=None):
@@ -752,7 +796,7 @@ class Runtime(ABC):
                 target["focus"] = args["text"]
                 if target["team_id"]:
                     target["focus_revision"] = self.store.get("team", target["team_id"])["revision"]
-                self.store.put("agent", target["id"], target)
+                self.staffing.assign(target, args["text"], agent["id"], "lead reassignment")
             seq = self.store.send(args["to"], agent["id"], args["text"])
             kind = args.get("kind", "message")
             self.journal_message(
@@ -808,6 +852,12 @@ class Runtime(ABC):
             )
             self.done = True
             return {"finished": True, "published": self.published}
+        if name == "staffing":
+            return (
+                self.staffing.complete(agent, args)
+                if args["action"] == "complete"
+                else self.staffing.reviewer(agent, args)
+            )
         if name == "team":
             return await self.manage_team(agent, args)
         if name == "research":
@@ -872,15 +922,29 @@ class Runtime(ABC):
             if action != "run":
                 job = self.store.get("job", args["job_id"])
                 owner = self.agents[job["owner"]]
-                if agent["role"] != "tech_lead" and owner["team_id"] != agent["team_id"]:
+                assigned_source = (
+                    action == "status"
+                    and agent["role"] == "evaluator"
+                    and any(
+                        c["job_id"] == job["id"] and c.get("reviewer_id") == agent["id"]
+                        for c in self.store.all("candidate")
+                    )
+                )
+                if (
+                    agent["role"] != "tech_lead"
+                    and owner["team_id"] != agent["team_id"]
+                    and not assigned_source
+                ):
                     raise ValueError("Job belongs to another team")
                 if action == "cancel":
                     return self.jobs.cancel(job["id"])
                 return self.job_view(job, tail_bytes=16000)
-            if agent["role"] in MANAGERS:
+            if agent["role"] not in {"ml_engineer", "data_engineer", "data_analyst", "evaluator"}:
                 raise ValueError(
-                    "Managers cannot execute Python. Delegate to ML/data engineer or evaluator."
+                    "This role cannot execute Python; delegate to an execution specialist"
                 )
+            if self.store.get("assignment", agent["assignment_id"])["state"] != "active":
+                raise ValueError("Request a new assignment before starting new computations")
             if "code" in args:
                 path = self.writable(agent, uid("script") + ".py")
                 path.write_text(args["code"], encoding="utf-8")
@@ -924,6 +988,9 @@ class Runtime(ABC):
                 metadata={
                     "team_id": agent["team_id"],
                     "assignment_revision": agent.get("focus_revision"),
+                    "assignment_id": agent.get("assignment_id"),
+                    "role_profile_id": agent.get("role_profile_id"),
+                    "session_id": agent.get("session_id"),
                     "team_revision": team["revision"] if team else None,
                     "protocol_id": self.ledger.active()["id"] if self.ledger.active() else None,
                     "purpose": args.get("purpose", "current assignment"),

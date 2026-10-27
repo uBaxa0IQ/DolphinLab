@@ -7,6 +7,7 @@ export type ProjectPolicy = {
   };
   limits: {
     max_teams: number;
+    max_agents: number;
     parallel_jobs: number;
     parallel_model_calls: number;
     cpu_total: number;
@@ -34,6 +35,18 @@ export type Member = {
   role: string;
   state: string;
   color: string;
+  profile_revision?: number;
+  assignment?: string;
+  assignment_revision?: number;
+  assignment_state?: string;
+  handover?: {
+    summary: string;
+    results: string[];
+    evidence: string[];
+    open_questions: string[];
+    unsuccessful_approaches?: string[];
+    next_actions?: string[];
+  };
 };
 export type Team = {
   id: string;
@@ -47,6 +60,15 @@ export type Team = {
   updated: string;
   completed: number;
   total: number;
+  coordinator?: boolean;
+  composition_reason?: string;
+  reviewer_id?: string | null;
+  staffing_history?: {
+    id: string;
+    action: string;
+    reason: string;
+    created: number;
+  }[];
 };
 export type Experiment = {
   id: string;

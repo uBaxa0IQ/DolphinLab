@@ -158,7 +158,31 @@ class PlatformRuntime(Runtime):
                     },
                 )
                 try:
-                    result = await self.dispatch(agent, name, arguments)
+                    atomic = name in {
+                        "create_team",
+                        "add_specialist",
+                        "send_message",
+                        "reassign_team",
+                        "assign_reviewer",
+                        "complete_assignment",
+                        "retire_specialist",
+                    }
+                    if atomic:
+                        before = copy.deepcopy(self.agents)
+                        try:
+                            with self.store.transaction():
+                                result = await self.dispatch(agent, name, arguments)
+                                self.store.save_receipt(agent["id"], receipt_id, result)
+                        except Exception:
+                            for ident in list(self.agents):
+                                if ident not in before:
+                                    del self.agents[ident]
+                                else:
+                                    self.agents[ident].clear()
+                                    self.agents[ident].update(before[ident])
+                            raise
+                    else:
+                        result = await self.dispatch(agent, name, arguments)
                 except Exception as error:
                     result = {"error": str(error)}
                 self.store.save_receipt(agent["id"], receipt_id, result)
@@ -202,6 +226,7 @@ class PlatformRuntime(Runtime):
         return result["response"].get("tool_calls", [])
 
     async def dispatch(self, agent, name, args):
+        agent = self.actor(agent)
         if name == "acknowledge_directive":
             if agent["role"] != "tech_lead" or args.get("state") not in (
                 "accepted",
@@ -232,6 +257,8 @@ class PlatformRuntime(Runtime):
                 raise ValueError(
                     "Project team ceiling/finalization boundary reached; reuse or close a direction"
                 )
+        if (self.pause_requested or self.finish_requested) and name in ("add_specialist",):
+            raise ValueError("Pause/finalization prevents adding specialists")
         if self.pause_requested and name in ("run_python", "run_script", "create_team"):
             raise ValueError(
                 "User requested pause; finish the current turn without launching new work"
@@ -356,9 +383,27 @@ class PlatformRuntime(Runtime):
                     "name": team.get("direction", "Команда"),
                     "focus": team.get("goal", ""),
                     "icon": "layers",
-                    "state": "running" if active_jobs else "waiting",
-                    "stage": "Вычисления" if active_jobs else "Координация",
-                    "current": team.get("note", team.get("goal", "")),
+                    "state": "closed"
+                    if team["state"] in ("closed", "archived")
+                    else "running"
+                    if active_jobs
+                    else "waiting",
+                    "stage": "Завершена"
+                    if team["state"] in ("closed", "archived")
+                    else "Завершение"
+                    if team["state"] == "draining"
+                    else "Вычисления"
+                    if active_jobs
+                    else "Координация",
+                    "current": team.get("note") or team.get("goal", ""),
+                    "coordinator": team.get("coordinator", True),
+                    "composition_reason": team.get(
+                        "composition_reason", "Состав сохранён из прежнего запуска"
+                    ),
+                    "reviewer_id": team.get("evaluator"),
+                    "staffing_history": [
+                        r for r in self.store.all("staffing_change") if r["team_id"] == team["id"]
+                    ][-20:],
                     "updated": "только что",
                     "completed": sum(
                         j["state"] in TERMINAL for j in jobs if j["owner"] in team["members"]
@@ -368,6 +413,15 @@ class PlatformRuntime(Runtime):
                         {
                             "name": a["id"],
                             "role": a["role"],
+                            "profile_revision": self.staffing.profile(a)["revision"],
+                            "assignment": a.get("focus", ""),
+                            "assignment_revision": a.get("assignment_revision"),
+                            "assignment_state": self.store.get("assignment", a["assignment_id"])[
+                                "state"
+                            ],
+                            "handover": self.store.get("assignment", a["assignment_id"]).get(
+                                "handover"
+                            ),
                             "state": a.get("activity", a["state"]),
                             "color": palette[i % 4],
                         }

@@ -17,6 +17,7 @@ const defaults = (): ProjectPolicy => ({
   strategy: { exploration: "balanced", guidance: "" },
   limits: {
     max_teams: 6,
+    max_agents: 25,
     parallel_jobs: 2,
     parallel_model_calls: 6,
     cpu_total: 8,
@@ -55,6 +56,14 @@ const fields: {
   max: number;
   unit: string;
 }[] = [
+  {
+    key: "max_agents",
+    label: "Максимум активных агентов",
+    hint: "Включая техлида, координаторов и проверяющих",
+    min: 2,
+    max: 100,
+    unit: "агентов",
+  },
   {
     key: "max_teams",
     label: "Максимум команд",

@@ -4,6 +4,7 @@ import asyncio
 import time
 
 from dolphinlab.common.serialization import dumps, uid
+from dolphinlab.domain.staffing import TeamComposition
 from dolphinlab.research.context import (
     archive_context,
 )
@@ -46,15 +47,24 @@ class TeamManager:
             self.runtime.complete_interrupted_calls(a)
             archives[member] = archive_context(a, self.runtime.store, "team " + team["state"])
             a["last_archive"] = archives[member]
+            self.runtime.staffing.interrupt(a, reason)
             a["history"], a["summary"] = [], ""
             self.runtime.store.put("agent", member, a)
         team["handover"] = {
             "member_archives": archives,
+            "assignment_ids": [
+                self.runtime.agents[m].get("assignment_id") for m in team["members"]
+            ],
             "finding_ids": [
                 f["id"] for f in self.runtime.store.all("finding") if f["team_id"] == team["id"]
             ],
             "candidate_ids": [
                 c["id"] for c in self.runtime.store.all("candidate") if c["team_id"] == team["id"]
+            ],
+            "outstanding_review_ids": [
+                c["id"]
+                for c in self.runtime.store.all("candidate")
+                if c.get("reviewer_id") in team["members"] and c.get("review_state") == "pending"
             ],
         }
         self.runtime.store.put("team", team["id"], team)
@@ -93,87 +103,97 @@ class TeamManager:
                     team.get("closing_reason", "completed"),
                 )
 
+    def create_team(self, agent, args):
+        rt = self.runtime
+        if agent["role"] != "tech_lead":
+            raise ValueError("Only tech lead creates teams")
+        legacy = rt.staffing.profile(agent)["revision"] == 1
+        composition = TeamComposition.model_validate(
+            {
+                "members": args.get(
+                    "members",
+                    [
+                        {"role": role, "assignment": args["goal"]}
+                        for role in ("ml_engineer", "data_engineer", "evaluator")
+                    ],
+                )
+                if legacy
+                else args.get("members"),
+                "coordinator": args.get("coordinator", legacy),
+                "reason": args.get("reason", "Legacy four-role composition")
+                if legacy
+                else args.get("reason"),
+            }
+        )
+        selected = {member.role for member in composition.members}
+        if not selected <= rt.staffing.profiles.keys():
+            raise ValueError("A selected role is outside this run's frozen catalog")
+        needed = len(composition.members) + int(composition.coordinator)
+        if sum(a["state"] != "closed" for a in rt.agents.values()) + needed > rt.config.max_agents:
+            raise ValueError(
+                "Selected composition exceeds active agent capacity; reuse or retire specialists"
+            )
+        ident = uid("team")
+        team = {
+            "id": ident,
+            "direction": args["direction"],
+            "goal": args["goal"],
+            "revision": 1,
+            "state": "active",
+            "note": "",
+            "members": [],
+            "scope": args.get("scope", args["direction"]),
+            "out_of_scope": args.get("out_of_scope", ""),
+            "deliverables": args.get("deliverables", []),
+            "shared_findings": [],
+            "allocation_deadline_wall": time.time()
+            + min(
+                rt.config.remaining,
+                max(0.0, float(args.get("budget_seconds", rt.config.remaining))),
+            ),
+            "time_plan": {},
+            "time_alerts": {},
+            "resources": args.get("resources", {}),
+            "purpose": args.get(
+                "purpose",
+                "delivery" if "ml_engineer" in selected and not rt.published else "research",
+            ),
+            "composition_reason": composition.reason,
+            "coordinator": composition.coordinator,
+            "evaluator": None,
+        }
+        before = set(rt.agents)
+        try:
+            with rt.store.transaction():
+                leader = (
+                    rt.new_agent("team_lead", ident, rt.root["id"], args["goal"])
+                    if composition.coordinator
+                    else rt.root
+                )
+                team["lead"] = leader["id"]
+                if composition.coordinator:
+                    team["members"].append(leader["id"])
+                for member in composition.members:
+                    child = rt.new_agent(member.role, ident, leader["id"], member.assignment)
+                    team["members"].append(child["id"])
+                    team.setdefault(member.role, child["id"])
+                    if member.role == "evaluator" and not team["evaluator"]:
+                        team["evaluator"] = child["id"]
+                rt.store.put("team", ident, team)
+                rt.staffing.change(
+                    ident, agent["id"], composition.reason, action="create", members=team["members"]
+                )
+                rt.store.event("team_created", team)
+        except Exception:
+            for child_id in set(rt.agents) - before:
+                del rt.agents[child_id]
+            raise
+        return team
+
     async def manage_team(self, agent, args):
         action = args["action"]
         if action == "create":
-            if agent["role"] != "tech_lead":
-                raise ValueError("Only tech lead creates teams")
-            if (
-                sum(a["state"] != "closed" for a in self.runtime.agents.values()) + 4
-                > self.runtime.config.max_agents
-            ):
-                raise ValueError("Need room for lead, ML engineer, data engineer and evaluator")
-            ident = uid("team")
-            team = {
-                "id": ident,
-                "direction": args["direction"],
-                "goal": args["goal"],
-                "revision": 1,
-                "state": "active",
-                "note": "",
-                "members": [],
-                "scope": args.get("scope", args["direction"]),
-                "out_of_scope": args.get("out_of_scope", ""),
-                "deliverables": args.get("deliverables", []),
-                "shared_findings": [],
-                "allocation_deadline_wall": time.time()
-                + min(
-                    self.runtime.config.remaining,
-                    max(0.0, float(args.get("budget_seconds", self.runtime.config.remaining))),
-                ),
-                "time_plan": {},
-                "time_alerts": {},
-                "resources": args.get("resources", {}),
-            }
-            first_delivery = not self.runtime.published and not any(
-                t.get("purpose") == "delivery" and t["state"] in ("active", "draining")
-                for t in self.runtime.store.all("team")
-            )
-            team["purpose"] = args.get("purpose", "delivery" if first_delivery else "research")
-            milestone = (
-                "CURRENT FIRST MILESTONE: deliver one modest genuine fit/assessment/inference artifact before any sweep or extensive CV. "
-                "One configuration and the simplest honest task-compatible assessment, then register and independently review. "
-                "Research the broader charter after that checkpoint. "
-                if team["purpose"] == "delivery"
-                else "Investigate this independent research question using shared data/evaluation evidence; avoid duplicating the delivery team's pipeline. "
-            )
-            leader = self.runtime.new_agent(
-                "team_lead", ident, self.runtime.root["id"], milestone + args["goal"]
-            )
-            evaluator = self.runtime.new_agent(
-                "evaluator",
-                ident,
-                leader["id"],
-                "You are this team's evaluator. Familiarize yourself with the task, "
-                "coordinate evaluation with the lead, then wait for concrete candidates.",
-            )
-            ml = self.runtime.new_agent(
-                "ml_engineer",
-                ident,
-                leader["id"],
-                milestone
-                + "You own implementation and candidate registration within this charter: "
-                + args["goal"]
-                + ". Coordinate with the lead, data engineer and evaluator; do not wait for exhaustive profiling before a safe baseline.",
-            )
-            data = self.runtime.new_agent(
-                "data_engineer",
-                ident,
-                leader["id"],
-                "Investigate schema, fit/transform boundaries and useful data opportunities for: "
-                + args["goal"]
-                + ". Supply evidence and usable code to ML engineer; support the first delivery in parallel.",
-            )
-            team.update(
-                lead=leader["id"],
-                evaluator=evaluator["id"],
-                ml_engineer=ml["id"],
-                data_engineer=data["id"],
-                members=[leader["id"], ml["id"], data["id"], evaluator["id"]],
-            )
-            self.runtime.store.put("team", ident, team)
-            self.runtime.store.event("team_created", team)
-            return team
+            return self.create_team(agent, args)
         team = self.runtime.store.get("team", args["team_id"])
         if agent["role"] != "tech_lead" and team["lead"] != agent["id"]:
             raise ValueError("Manage your own team")
@@ -242,6 +262,11 @@ class TeamManager:
             )
             if not args.get("keep_note", True):
                 target["note"] = ""
+            self.runtime.staffing.interrupt(target, "fresh context episode")
+            self.runtime.staffing.new_session(target)
+            self.runtime.staffing.assign(
+                target, target["focus"], agent["id"], "fresh context episode"
+            )
             self.runtime.store.put("agent", target["id"], target)
             self.runtime.notify(
                 target["id"],
@@ -253,17 +278,63 @@ class TeamManager:
             return {"agent_id": target["id"], "epoch": target["epoch"], "archive": archive}
         if team["state"] != "active":
             raise ValueError("Team is not active")
+        if action == "retire":
+            target = self.runtime.agents[args["agent_id"]]
+            if (
+                target["team_id"] != team["id"]
+                or target["id"] == agent["id"]
+                or target["role"] not in SPECIALISTS
+            ):
+                raise ValueError("Retire an own team's subordinate specialist")
+            task = self.runtime.turns.get(target["id"])
+            if task and not task.done():
+                raise ValueError("Wait for the specialist's current turn before retirement")
+            record = self.runtime.store.get("assignment", target["assignment_id"])
+            if record["state"] != "completed" or not record.get("handover"):
+                raise ValueError("Collect the specialist's structured handover first")
+            if any(
+                j["owner"] == target["id"] and j["state"] not in TERMINAL
+                for j in self.runtime.store.all("job")
+            ):
+                raise ValueError("Specialist still has active jobs")
+            if any(
+                c.get("reviewer_id") == target["id"] and c.get("review_state") == "pending"
+                for c in self.runtime.store.all("candidate")
+            ):
+                raise ValueError("Reassign pending reviews before retiring this evaluator")
+            target["last_archive"] = archive_context(
+                target, self.runtime.store, "specialist retirement"
+            )
+            target["state"] = "closed"
+            self.runtime.store.retire_mail(target["id"])
+            self.runtime.store.put("agent", target["id"], target)
+            self.runtime.staffing.change(
+                team["id"], agent["id"], args["reason"], action="retire", agent_id=target["id"]
+            )
+            if team.get("evaluator") == target["id"]:
+                team["evaluator"] = None
+                self.runtime.store.put("team", team["id"], team)
+            return {"agent_id": target["id"], "state": "closed", "handover": record["id"]}
         if action == "staff":
             role = args["role"]
             if role not in SPECIALISTS:
                 raise ValueError("Role not in specialist catalog")
-            if role == "evaluator":
-                return {"agent_id": team["evaluator"], "existing": True}
-            child = self.runtime.new_agent(role, team["id"], team["lead"], args["assignment"])
+            child = self.runtime.new_agent(
+                role, team["id"], team["lead"], args["assignment"], focus_revision=team["revision"]
+            )
             child["focus_revision"] = team["revision"]
             self.runtime.store.put("agent", child["id"], child)
             team["members"].append(child["id"])
+            if role == "evaluator" and not team.get("evaluator"):
+                team["evaluator"] = child["id"]
             self.runtime.store.put("team", team["id"], team)
+            self.runtime.staffing.change(
+                team["id"],
+                agent["id"],
+                args.get("reason", "legacy staffing"),
+                action="add",
+                agent_id=child["id"],
+            )
             return {"agent_id": child["id"], "workspace": child["workspace"]}
         if agent["role"] != "tech_lead":
             raise ValueError("Only tech lead reassigns or closes teams")
@@ -277,10 +348,23 @@ class TeamManager:
             if "scope" not in args:
                 team["scope"] = args["direction"]
             self.runtime.store.put("team", team["id"], team)
-            leader = self.runtime.agents[team["lead"]]
-            leader.update(focus=team["goal"], focus_revision=team["revision"])
-            self.runtime.store.put("agent", leader["id"], leader)
+            self.runtime.staffing.change(
+                team["id"], agent["id"], args["goal"], action="reassign", revision=team["revision"]
+            )
             for member in team["members"]:
+                target = self.runtime.agents[member]
+                if target["state"] == "closed":
+                    continue
+                target["focus_revision"] = team["revision"]
+                self.runtime.staffing.assign(
+                    target,
+                    "Reassess within revised charter: "
+                    + team["goal"]
+                    + ". Previous focus: "
+                    + target["focus"],
+                    agent["id"],
+                    "charter revised",
+                )
                 self.runtime.notify(
                     member,
                     "Team charter revised; prior assignments may be superseded. "

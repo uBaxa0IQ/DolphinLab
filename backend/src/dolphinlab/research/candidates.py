@@ -69,9 +69,10 @@ class CandidateRegistry:
                 "approved": False,
                 "created": time.time(),
             }
+            candidate["reviewer_id"] = team.get("evaluator")
             self.runtime.store.put("candidate", ident, candidate)
             self.runtime.notify(
-                team["evaluator"],
+                team.get("evaluator") or self.runtime.root["id"],
                 "Candidate ready for your independent verification: " + dumps(candidate),
                 agent["id"],
             )
@@ -81,8 +82,10 @@ class CandidateRegistry:
             return candidate
         candidate = self.runtime.store.get("candidate", args["candidate_id"])
         if action == "flag":
-            if agent["role"] != "evaluator" or candidate["team_id"] != agent["team_id"]:
-                raise ValueError("The candidate team's evaluator flags correctness blockers")
+            if not self.independent_reviewer(agent, candidate):
+                raise ValueError(
+                    "Only the assigned independent evaluator flags correctness blockers"
+                )
             candidate.setdefault("blockers", []).append(
                 {
                     "reason": args["reason"],
@@ -118,8 +121,8 @@ class CandidateRegistry:
             )
             return candidate
         if action == "review":
-            if agent["role"] != "evaluator" or candidate["team_id"] != agent["team_id"]:
-                raise ValueError("Only the candidate team's evaluator can record its review")
+            if not self.independent_reviewer(agent, candidate):
+                raise ValueError("Only the assigned independent evaluator can record this review")
             verification = self.runtime.store.get("job", args["job_id"])
             if verification["owner"] != agent["id"] or verification["state"] != "succeeded":
                 raise ValueError(
@@ -151,7 +154,7 @@ class CandidateRegistry:
             self.runtime.store.put("candidate", candidate["id"], candidate)
             if not candidate["approved"]:
                 self.runtime.withdraw_candidate(candidate)
-            team = self.runtime.store.get("team", agent["team_id"])
+            team = self.runtime.store.get("team", candidate["team_id"])
             for recipient in (team["lead"], self.runtime.root["id"]):
                 self.runtime.notify(
                     recipient, "Evaluator verdict: " + dumps(candidate), agent["id"]
@@ -165,6 +168,16 @@ class CandidateRegistry:
                 raise ValueError("Tech lead chooses the published result")
             return self.runtime.publish(candidate["id"])
         raise ValueError("Unknown candidate action")
+
+    def independent_reviewer(self, agent, candidate):
+        team = self.runtime.store.get("team", candidate["team_id"])
+        assigned = candidate.get("reviewer_id", team.get("evaluator"))
+        source = self.runtime.store.get("job", candidate["job_id"])
+        return (
+            agent["role"] == "evaluator"
+            and agent["id"] == assigned
+            and agent["id"] not in (candidate["author"], source["owner"])
+        )
 
     def withdraw_candidate(self, candidate):
         if self.runtime.published and self.runtime.published["candidate_id"] == candidate["id"]:

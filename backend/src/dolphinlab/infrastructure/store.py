@@ -3,6 +3,8 @@
 import copy
 import json
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -23,12 +25,32 @@ class PostgresStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.log_error = None
         self.on_close = None
+        self._transaction = ContextVar("research_store_transaction", default=None)
+
+    @contextmanager
+    def transaction(self):
+        """Compose synchronous staffing changes and their durable receipts atomically."""
+        current = self._transaction.get()
+        if current is not None:
+            yield current
+            return
+        with Session.begin() as db:
+            token = self._transaction.set(db)
+            try:
+                yield db
+            finally:
+                self._transaction.reset(token)
 
     def put(self, kind, ident, data):
-        with Session.begin() as db:
+        with self.transaction() as db:
             statement = insert(ResearchObject).values(
                 run_id=self.run_id, kind=kind, object_id=ident, data=copy.deepcopy(data)
             )
+            if kind in ("role_profile", "assignment_revision"):
+                db.execute(statement.on_conflict_do_nothing())
+                if self.get(kind, ident) != data:
+                    raise ValueError(f"{kind} is immutable; create a new revision")
+                return
             db.execute(
                 statement.on_conflict_do_update(
                     index_elements=["run_id", "kind", "object_id"],
@@ -37,7 +59,7 @@ class PostgresStore:
             )
 
     def get(self, kind, ident):
-        with Session() as db:
+        with self.transaction() as db:
             value = db.scalar(
                 select(ResearchObject.data).where(
                     ResearchObject.run_id == self.run_id,
@@ -50,7 +72,7 @@ class PostgresStore:
             return value
 
     def all(self, kind):
-        with Session() as db:
+        with self.transaction() as db:
             return list(
                 db.scalars(
                     select(ResearchObject.data)
@@ -64,7 +86,7 @@ class PostgresStore:
 
     def event(self, kind, data):
         timestamp = time.time()
-        with Session.begin() as db:
+        with self.transaction() as db:
             event = ResearchEvent(
                 run_id=self.run_id,
                 kind=kind,
@@ -99,7 +121,7 @@ class PostgresStore:
     def send(self, recipient, sender, body):
         if self.get("agent", recipient)["state"] == "closed":
             raise ValueError("Recipient is closed")
-        with Session.begin() as db:
+        with self.transaction() as db:
             mail = ResearchMail(
                 run_id=self.run_id,
                 recipient=recipient,
@@ -114,7 +136,7 @@ class PostgresStore:
         return ident
 
     def pending(self, recipient):
-        with Session() as db:
+        with self.transaction() as db:
             return (
                 db.scalar(
                     select(ResearchMail.seq)
@@ -129,7 +151,7 @@ class PostgresStore:
             )
 
     def take_mail(self, agent, limit=12000):
-        with Session.begin() as db:
+        with self.transaction() as db:
             rows = db.scalars(
                 select(ResearchMail)
                 .where(
@@ -174,12 +196,12 @@ class PostgresStore:
         return len(chosen)
 
     def receipt(self, agent, call_id):
-        with Session() as db:
+        with self.transaction() as db:
             receipt = db.get(ResearchReceipt, (self.run_id, agent, call_id))
             return receipt.result if receipt else None
 
     def save_receipt(self, agent, call_id, result):
-        with Session.begin() as db:
+        with self.transaction() as db:
             statement = insert(ResearchReceipt).values(
                 run_id=self.run_id,
                 agent=agent,
@@ -189,7 +211,7 @@ class PostgresStore:
             db.execute(statement.on_conflict_do_nothing())
 
     def recent_mail(self, recipients, limit=20):
-        with Session() as db:
+        with self.transaction() as db:
             rows = db.scalars(
                 select(ResearchMail)
                 .where(
@@ -212,7 +234,7 @@ class PostgresStore:
             ]
 
     def retire_mail(self, recipient):
-        with Session.begin() as db:
+        with self.transaction() as db:
             db.execute(
                 update(ResearchMail)
                 .where(
@@ -223,7 +245,7 @@ class PostgresStore:
             )
 
     def archives(self):
-        with Session() as db:
+        with self.transaction() as db:
             return [
                 {"kind": "context_archive", **data}
                 for data in db.scalars(

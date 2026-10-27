@@ -185,8 +185,9 @@ class ResearchSession:
                 cpus=limits["cpu_total"],
                 ram_mb=limits["ram_gb"] * 1024,
                 llm_concurrency=limits["parallel_model_calls"],
-                max_agents=1 + limits["max_teams"] * 6,
+                max_agents=limits.get("max_agents", 1 + limits["max_teams"] * 6),
                 resume=bool(store.all("run")),
+                role_catalog=run.role_catalog or [],
                 **connection,
             )
             config.platform_parallel_jobs = limits["parallel_jobs"]
