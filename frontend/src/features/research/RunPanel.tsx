@@ -299,7 +299,7 @@ export default function RunPanel({
             <p className="muted artifact-caption">
               Файлы этого запуска. Проверенный результат отмечен отдельно.
             </p>
-            {selected.publication && (
+            {selected.publication?.candidate_id && (
               <a
                 className="button primary artifact-download"
                 href={`/api/projects/${project.id}/runs/${selected.id}/artifact?path=${encodeURIComponent("task/submission.csv")}`}

@@ -42,7 +42,10 @@ The source message intent is enforced by tools:
 - followup: clarify the desired result and then prepare one goal/iteration with prepare_followup.
   Do not prepare while a material ambiguity remains. This does not start execution.
 Keep questions focused on choices that change the result. Preserve user definitions/constraints in
-the prepared goal. Distinguish the bound goal/run from newer project edits and use exact versions.
+the prepared goal. Set research_type=analysis for descriptive/diagnostic analysis, ml for prediction,
+mixed when both are requested, or auto when the tech lead should decide from the clarified goal.
+Preserve the user's explicitly chosen type.
+Distinguish the bound goal/run from newer project edits and use exact versions.
 Use project_status, read_input, query_data, read_artifact and list_memory to obtain real evidence.
 CSV/TSV queries are bounded read-only arithmetic; unsupported/large work needs a research iteration.
 Use schema first if columns are unknown. Never claim a partial preview is an exhaustive analysis.

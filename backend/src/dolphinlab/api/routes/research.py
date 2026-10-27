@@ -6,11 +6,28 @@ from sqlalchemy import select
 from dolphinlab.api.schemas import CreateGoal, CreateIteration
 from dolphinlab.application.knowledge import KnowledgeService
 from dolphinlab.application.research import ResearchService
+from dolphinlab.application.results import ResultsService
 from dolphinlab.infrastructure.database import PMAction, Session
 
 router = APIRouter(prefix="/api", tags=["research"])
 service = ResearchService()
 knowledge = KnowledgeService()
+results = ResultsService()
+
+
+@router.get("/projects/{project_id}/runs/{run_id}/results")
+def result_index(project_id: str, run_id: str):
+    return results.index(project_id, run_id)
+
+
+@router.get("/projects/{project_id}/runs/{run_id}/results/{result_id}")
+def result_detail(project_id: str, run_id: str, result_id: str):
+    return results.result(project_id, run_id, result_id)
+
+
+@router.get("/projects/{project_id}/runs/{run_id}/evidence/{artifact_id}")
+def result_artifact(project_id: str, run_id: str, artifact_id: str):
+    return results.artifact(project_id, run_id, artifact_id)
 
 
 @router.get("/projects/{project_id}/memory")

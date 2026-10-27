@@ -166,6 +166,10 @@ class PlatformRuntime(Runtime):
                         "assign_reviewer",
                         "complete_assignment",
                         "retire_specialist",
+                        "declare_delivery",
+                        "register_result",
+                        "assess_result",
+                        "publish_report",
                     }
                     if atomic:
                         before = copy.deepcopy(self.agents)
@@ -336,7 +340,7 @@ class PlatformRuntime(Runtime):
             run.elapsed_seconds = max(0.0, self.config.seconds - self.config.remaining)
             run.updated = now()
             run.snapshot = self.snapshot()
-            run.publication = copy.deepcopy(self.published)
+            run.publication = copy.deepcopy(self.delivery())
             db.add(
                 Event(
                     project_id=run.project_id,
@@ -356,7 +360,9 @@ class PlatformRuntime(Runtime):
             "experiments": [],
             "remaining_seconds": self.config.remaining,
             "resources": {"cpu": self.jobs.used_cpu, "ram_mb": self.jobs.used_ram},
-            "published": self.published,
+            "published": self.delivery(),
+            "delivery_contract": self.results.contract(),
+            "report_publication": self.results.current(),
             "findings": self.store.all("finding")[-8:],
             "candidates": [
                 {

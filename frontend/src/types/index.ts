@@ -170,7 +170,14 @@ export type ResearchRun = {
     prompt_tokens?: number;
     completion_tokens?: number;
   };
-  publication?: { candidate_id: string; sha256: string } | null;
+  publication?: {
+    candidate_id?: string;
+    page_id?: string;
+    report_id?: string;
+    kind?: string;
+    outcome?: string;
+    sha256: string;
+  } | null;
 };
 export type Project = {
   id: string;
@@ -193,6 +200,7 @@ export type Project = {
 
 export type GoalSpec = {
   schema_version: 1;
+  research_type?: "auto" | "analysis" | "ml" | "mixed";
   question: string;
   expected_outputs: string[];
   definitions: Record<string, string>;

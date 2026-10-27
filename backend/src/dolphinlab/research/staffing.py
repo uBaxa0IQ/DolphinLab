@@ -7,7 +7,7 @@ import time
 from dolphinlab.common.serialization import uid
 from dolphinlab.domain.staffing import Handover, RoleProfileRevision
 from dolphinlab.research.jobs import TERMINAL
-from dolphinlab.research.roles import LEGACY_ROLES, ROLES, prompt
+from dolphinlab.research.roles import LEGACY_ROLES, ROLES, V2_ROLES, prompt
 from dolphinlab.research.tools import tools_for
 
 
@@ -16,10 +16,10 @@ def profile_digest(profile):
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
-def freeze_profiles(legacy=False):
-    revision = 1 if legacy else 2
+def freeze_profiles(legacy=False, revision=None):
+    revision = revision or (1 if legacy else 3)
     result = []
-    for role in LEGACY_ROLES if legacy else ROLES:
+    for role in LEGACY_ROLES if revision == 1 else V2_ROLES if revision == 2 else ROLES:
         record = {
             "role": role,
             "revision": revision,

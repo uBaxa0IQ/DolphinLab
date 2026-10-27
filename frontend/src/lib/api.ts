@@ -11,6 +11,7 @@ import type {
   ResearchIteration,
   WorkspaceSettings,
 } from "../types";
+import type { ResultIndex, ResultRecord } from "../types/reports";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch("/api" + path, init);
   if (!response.ok) {
@@ -42,6 +43,10 @@ async function createOnce<T>(
   return result;
 }
 export const api = {
+  results: (id: string, run: string) =>
+    request<ResultIndex>(`/projects/${id}/runs/${run}/results`),
+  result: (id: string, run: string, result: string) =>
+    request<ResultRecord>(`/projects/${id}/runs/${run}/results/${result}`),
   runs: (id: string) => request<ResearchRun[]>(`/projects/${id}/runs`),
   start: (id: string, iterationId?: string, previousRunId?: string) =>
     createOnce<ResearchRun>(

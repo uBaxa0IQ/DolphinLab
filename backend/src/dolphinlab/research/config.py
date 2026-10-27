@@ -49,6 +49,9 @@ class Config:
     resume: bool = False
     reference_roots: tuple[Path, ...] = ()
     role_catalog: list[dict] = field(default_factory=list)
+    goal_spec: dict = field(default_factory=dict)
+    scope: dict = field(default_factory=dict)
+    input_versions: list[dict] = field(default_factory=list)
     deadline_wall: float | None = None
     model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", ""))
     base_url: str = field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", ""))

@@ -138,7 +138,7 @@ class DynamicStaffingTest(unittest.TestCase):
         analyst = self.member(team, "data_analyst")
         self.assertEqual(analyst["supervisor"], self.rt.root["id"])
         self.assertEqual(len(self.rt.agents), 2)
-        self.assertEqual(self.rt.staffing.profile(analyst)["revision"], 2)
+        self.assertEqual(self.rt.staffing.profile(analyst)["revision"], 3)
         self.assertEqual(
             self.rt.state(analyst)["assignment"]["question"], "Evidence for data_analyst"
         )

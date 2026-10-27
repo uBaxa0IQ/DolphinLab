@@ -66,6 +66,11 @@ def run_view(run):
         "publication": {
             "candidate_id": run.publication.get("candidate_id"),
             "sha256": run.publication.get("sha256"),
+            **{
+                key: run.publication[key]
+                for key in ("kind", "page_id", "report_id", "outcome")
+                if key in run.publication
+            },
         }
         if run.publication
         else None,

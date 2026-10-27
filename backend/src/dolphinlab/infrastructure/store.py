@@ -46,7 +46,15 @@ class PostgresStore:
             statement = insert(ResearchObject).values(
                 run_id=self.run_id, kind=kind, object_id=ident, data=copy.deepcopy(data)
             )
-            if kind in ("role_profile", "assignment_revision"):
+            if kind in (
+                "role_profile",
+                "assignment_revision",
+                "artifact",
+                "result_revision",
+                "assessment",
+                "page_revision",
+                "delivery_contract",
+            ):
                 db.execute(statement.on_conflict_do_nothing())
                 if self.get(kind, ident) != data:
                     raise ValueError(f"{kind} is immutable; create a new revision")

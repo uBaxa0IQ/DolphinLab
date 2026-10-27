@@ -574,8 +574,71 @@ CATALOG += [
 ]
 
 
-def tools_for(role, revision=2):
-    catalog = LEGACY_CATALOG if revision == 1 else CATALOG
+V2_CATALOG = deepcopy(CATALOG)
+CATALOG += [
+    spec(
+        "declare_delivery",
+        "Freeze analysis/ml/mixed delivery criteria matching the original goal; does not execute work.",
+        {"kind": {"enum": ["analysis", "ml", "mixed"]}, "criteria": STRINGS, "reason": S},
+        ["kind", "criteria", "reason"],
+        {"tech_lead"},
+        "results",
+        {"action": "declare"},
+    ),
+    spec(
+        "register_result",
+        "Freeze a bounded JSON dataset/table/metric/finding/chart/report from your successful job. Editor may assemble chart/report JSON in own workspace. Numeric payloads need selection, sample_size and units. Prepared table: columns [{name,label,type,unit}], rows; chart: type,table_id,x,y,x_label,y_label,caption; report: summary,blocks [{result_id,caption,required}],limitations. Read exact revisions instead of duplicating data.",
+        {
+            "kind": {"enum": ["dataset", "table", "metric", "finding", "chart", "report"]},
+            "title": S,
+            "path": S,
+            "job_id": S,
+            "dependencies": STRINGS,
+            "previous_id": S,
+        },
+        ["kind", "title", "path"],
+        {"data_analyst", "data_engineer", "ml_engineer", "evaluator", "report_editor"},
+        "results",
+        {"action": "register"},
+    ),
+    spec(
+        "inspect_result",
+        "Read exact result payload, frozen artifact hash, status and latest assessment.",
+        {"result_id": S},
+        ["result_id"],
+        route="results",
+        fixed={"action": "inspect"},
+    ),
+    spec(
+        "list_results",
+        "List bounded metadata for saved analytical revisions without loading raw data.",
+        {},
+        route="results",
+        fixed={"action": "list"},
+    ),
+    spec(
+        "assess_result",
+        "Evaluator: freeze own successful verification job's JSON evidence for an exact result revision. Never self-approve. Verification JSON: result_id,sha256,status,checks [{name,passed,detail}],conclusion.",
+        {"result_id": S, "job_id": S, "path": S},
+        ["result_id", "job_id", "path"],
+        {"evaluator"},
+        "results",
+        {"action": "assess"},
+    ),
+    spec(
+        "publish_report",
+        "Save a report page revision. Editor may save draft=true. Only tech lead publishes checked reports; outcome=inconclusive discloses supported data/method limitations. Required evidence must have independent assessments; draft is not final delivery.",
+        {"report_id": S, "outcome": {"enum": ["complete", "inconclusive"]}, "draft": B},
+        ["report_id", "outcome"],
+        {"tech_lead", "report_editor"},
+        "results",
+        {"action": "publish"},
+    ),
+]
+
+
+def tools_for(role, revision=3):
+    catalog = LEGACY_CATALOG if revision == 1 else V2_CATALOG if revision == 2 else CATALOG
     return [
         deepcopy(item["schema"])
         for item in catalog
@@ -622,8 +685,8 @@ def validate_value(value, schema, path="arguments"):
         raise ValueError(f"{path}: invalid string length")
 
 
-def resolve_call(role, name, arguments, revision=2, schemas=None):
-    catalog = LEGACY_CATALOG if revision == 1 else CATALOG
+def resolve_call(role, name, arguments, revision=3, schemas=None):
+    catalog = LEGACY_CATALOG if revision == 1 else V2_CATALOG if revision == 2 else CATALOG
     item = next((i for i in catalog if i["schema"]["function"]["name"] == name), None)
     if item is None or (item["roles"] is not None and role not in item["roles"]):
         raise ValueError(f"{name} is unavailable to {role}; use your role's listed operations")

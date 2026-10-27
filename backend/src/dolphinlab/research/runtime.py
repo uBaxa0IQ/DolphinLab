@@ -32,6 +32,7 @@ from dolphinlab.research.tools import resolve_call
 from .candidates import CandidateRegistry
 from .memory import MemoryManager
 from .ports import ResearchStore
+from .results import ResultRegistry
 from .staffing import Staffing
 from .teams import TeamManager
 
@@ -99,6 +100,7 @@ class Runtime(ABC):
         publications = self.store.all("publication")
         if publications and publications[0].get("candidate_id"):
             self.published = publications[0]
+        self.results = ResultRegistry(self)
         self.last_checkpoint = time.monotonic()
         if hasattr(client, "config"):
             client.log_dir = config.work_dir / "requests"
@@ -323,7 +325,7 @@ class Runtime(ABC):
             "personal_note": agent.get("note"),
             "global_note": self.root.get("note"),
             "team_board": self.team_board(agent["team_id"]) if agent["team_id"] else None,
-            "published": self.published,
+            "published": self.delivery(),
         }
 
     def state(self, agent):
@@ -344,6 +346,11 @@ class Runtime(ABC):
             **self.config.public(),
             "agent_id": agent["id"],
             "role": agent["role"],
+            "delivery_contract": self.results.contract(),
+            "result_index": [self.results.summary(r) for r in self.store.all("result_revision")][
+                -30:
+            ],
+            "report_publication": self.results.current(),
             "role_profile": {
                 k: self.staffing.profile(agent)[k] for k in ("id", "revision", "role")
             },
@@ -436,7 +443,7 @@ class Runtime(ABC):
                 for c in selected.values()
             ],
             "candidate_count": len(visible),
-            "published": self.published,
+            "published": self.delivery(),
             "registry": "Use recall(topic, record_id), inspect_candidate or inspect_team for evidence",
             "resources_in_use": {
                 "cpus": self.jobs.used_cpu,
@@ -466,7 +473,7 @@ class Runtime(ABC):
                             "Running jobs may finish; no new research jobs. Tech lead can adjust the "
                             "plan with plan_run or delegate local timing to team leads; cancel obsolete work explicitly.",
                         )
-                    if not self.published:
+                    if not self.delivery():
                         approved = [c for c in self.store.all("candidate") if c.get("approved")]
                         if approved:
                             self.publish(approved[-1]["id"])
@@ -557,6 +564,7 @@ class Runtime(ABC):
                     or digest(self.published["path"]) != self.published["sha256"]
                 ):
                     self.publish(self.published["candidate_id"])
+                self.results.validate_publication()
                 self.store.event(
                     "shutdown",
                     {"published": self.published, "remaining_seconds": self.config.remaining},
@@ -565,7 +573,7 @@ class Runtime(ABC):
                     "expired"
                     if self.config.remaining <= max(0.2, self.config.shutdown_seconds)
                     else "completed"
-                    if self.done and self.published
+                    if self.done and self.delivery()
                     else "stopped"
                 )
                 self.run_meta = checkpoint(self.config, self.store, self.run_meta, status)
@@ -573,7 +581,7 @@ class Runtime(ABC):
                 self.monitor.update(force=True)
             finally:
                 await self.client.close()
-        return self.published
+        return self.delivery()
 
     async def turn(self, agent):
         actor_token = request_actor.set(agent["id"])
@@ -725,6 +733,17 @@ class Runtime(ABC):
             )
         return path
 
+    def delivery(self):
+        kind = self.results.contract()["kind"]
+        report = self.results.current()
+        if kind == "analysis":
+            return report
+        if kind == "mixed":
+            return (
+                {**self.published, **report, "kind": "mixed"} if self.published and report else None
+            )
+        return self.published if kind == "ml" else None
+
     def actor(self, supplied):
         agent = self.agents.get(supplied["id"])
         if not agent or agent["state"] == "closed" or supplied.get("role") != agent["role"]:
@@ -831,8 +850,11 @@ class Runtime(ABC):
             agent["wake_at"] = time.monotonic() + min(seconds, self.config.remaining)
             return {"wake_in_seconds": seconds, "message_events": True}
         if name == "finish":
-            if not self.published:
-                raise ValueError("Publish an approved candidate before finishing")
+            self.results.validate_publication()
+            if not self.delivery():
+                raise ValueError(
+                    "Delivery contract needs a checked report, approved ML candidate, or both"
+                )
             if any(t["state"] in ("active", "draining") for t in self.store.all("team")):
                 raise ValueError(
                     "Research teams are still active. Consult leads, resolve candidate caveats, consider reassigning/opening a feasible direction, then collect handovers and close teams before finish. One job's timeout does not exhaust the run budget."
@@ -851,7 +873,9 @@ class Runtime(ABC):
                 },
             )
             self.done = True
-            return {"finished": True, "published": self.published}
+            return {"finished": True, "published": self.delivery()}
+        if name == "results":
+            return self.results.handle(agent, args["action"], args)
         if name == "staffing":
             return (
                 self.staffing.complete(agent, args)

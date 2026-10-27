@@ -222,6 +222,25 @@ export default function ResearchHistory({
       {draft && (
         <form className="research-goal-form" onSubmit={save}>
           <label>
+            Тип исследования
+            <select
+              aria-label="Тип исследования"
+              value={draft.research_type || "auto"}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  research_type: event.target
+                    .value as GoalSpec["research_type"],
+                })
+              }
+            >
+              <option value="auto">Автоматически по цели</option>
+              <option value="analysis">Анализ данных</option>
+              <option value="ml">ML</option>
+              <option value="mixed">Анализ и ML</option>
+            </select>
+          </label>
+          <label>
             Вопрос исследования
             <textarea
               required

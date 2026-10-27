@@ -37,6 +37,7 @@ import ExperimentRows from "../features/research/ExperimentRows";
 import RunPanel, { statusLabels } from "../features/research/RunPanel";
 import ResearchHistory from "../features/research/ResearchHistory";
 import TeamCard from "../features/research/TeamCard";
+import ReportPanel from "../features/research/ReportPanel";
 import TeamStaffing from "../features/research/TeamStaffing";
 import ProjectSettingsPanel from "../features/settings/ProjectSettingsPanel";
 import SettingsPanel from "../features/settings/SettingsPanel";
@@ -619,7 +620,7 @@ export default function App() {
 
               {!project.demo && (tab === "overview" || tab === "runs") && (
                 <ResearchHistory
-                  key={project.id}
+                  key={`history:${project.id}`}
                   project={project}
                   expanded={tab === "runs"}
                   enabled={settings.execution_enabled}
@@ -634,6 +635,9 @@ export default function App() {
                   openHistory={() => setTab("runs")}
                   changed={refreshProject}
                 />
+              )}
+              {!project.demo && tab === "overview" && (
+                <ReportPanel key={`report:${project.id}`} project={project} />
               )}
               {(tab === "overview" || tab === "teams") && (
                 <>
@@ -654,7 +658,11 @@ export default function App() {
                         </div>
                         <div className="result-value">
                           {project.score ||
-                            (project.latest_run?.publication ? "Готов" : "—")}
+                            (project.latest_run?.publication
+                              ? project.latest_run.publication.page_id
+                                ? "Отчёт"
+                                : "Готов"
+                              : "—")}
                           {project.score && project.id === "demo-retention" && (
                             <span>
                               <ArrowUpRight size={13} />
@@ -664,9 +672,11 @@ export default function App() {
                         </div>
                         <div className="result-bottom">
                           <span>
-                            {project.score || project.latest_run?.publication
-                              ? "Независимая проверка пройдена"
-                              : "Появится после первого эксперимента"}
+                            {project.latest_run?.publication?.page_id
+                              ? "Статусы проверки — в отчёте"
+                              : project.score || project.latest_run?.publication
+                                ? "Независимая проверка пройдена"
+                                : "Появится после первого эксперимента"}
                           </span>
                           {project.score && (
                             <button
@@ -677,15 +687,16 @@ export default function App() {
                               <ArrowDownToLine size={15} />
                             </button>
                           )}
-                          {!project.demo && project.latest_run?.publication && (
-                            <a
-                              title="Скачать проверенный submission.csv"
-                              aria-label="Скачать проверенный submission.csv"
-                              href={`/api/projects/${project.id}/runs/${project.latest_run.id}/artifact?path=${encodeURIComponent("task/submission.csv")}`}
-                            >
-                              <ArrowDownToLine size={15} />
-                            </a>
-                          )}
+                          {!project.demo &&
+                            project.latest_run?.publication?.candidate_id && (
+                              <a
+                                title="Скачать проверенный submission.csv"
+                                aria-label="Скачать проверенный submission.csv"
+                                href={`/api/projects/${project.id}/runs/${project.latest_run.id}/artifact?path=${encodeURIComponent("task/submission.csv")}`}
+                              >
+                                <ArrowDownToLine size={15} />
+                              </a>
+                            )}
                         </div>
                         {project.demo && (
                           <div className="mini-chart" aria-hidden="true">

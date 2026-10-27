@@ -188,6 +188,13 @@ class ResearchSession:
                 max_agents=limits.get("max_agents", 1 + limits["max_teams"] * 6),
                 resume=bool(store.all("run")),
                 role_catalog=run.role_catalog or [],
+                goal_spec=run.goal_snapshot,
+                scope={
+                    "project_id": run.project_id,
+                    "iteration_id": run.iteration_id,
+                    "run_id": run.id,
+                },
+                input_versions=run.inputs,
                 **connection,
             )
             config.platform_parallel_jobs = limits["parallel_jobs"]

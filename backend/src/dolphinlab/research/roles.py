@@ -262,10 +262,63 @@ You cannot execute code, change another author's files, register ML candidates o
 A draft page is not a published or verified result. The frontend report renderer comes in the next
 stage; preserve a useful structured draft and handover for that stage.
 """
+V2_COMMON, V2_ROLES = COMMON, dict(ROLES)
+ROLES["tech_lead"] = ROLES["tech_lead"].replace(
+    "The current runtime still requires ML publication for finish: analysis-only delivery needs the next\nresult-registry stage. Do not invent a dummy model to bypass this boundary. Keep evidence and handover.\n",
+    "",
+)
+ROLES["report_editor"] = ROLES["report_editor"].replace(
+    "The frontend report renderer comes in the next\nstage; preserve a useful structured draft and handover for that stage.",
+    "Preserve structured drafts and evidence for publication.",
+)
+ROLES["evaluator"] = ROLES["evaluator"].replace(
+    "Your role\ndoes not manufacture verified analytical results: the general result registry comes next.",
+    "Use the independent analytical assessment contract for new results.",
+)
+COMMON += """\nAnalytical results use immutable register_result JSON artifacts, prepared tables and explicit
+input selection/units/sample sizes. Save output JSON inside JOB_DIR, then register its exact path/job.
+A successful process is not a scientific verdict. Never self-approve or hide failed checks.
+Use list_results/inspect_result to read exact revisions. Charts reference a prepared table_id and
+named axes; no custom code or remote data in chart specs. Report blocks reference exact result IDs.
+"""
+ROLES[
+    "tech_lead"
+] += """\nFor new runs declare_delivery first: choose analysis/ml/mixed from the original
+user goal and concrete criteria. Auto means choose meaningfully, not default to training. Explicit
+research_type in the goal cannot be overridden. Delegate calculation and composition to specialists.
+For analysis, obtain independent assessments of required blocks and the report, then publish_report.
+The report verification checks must address each declared criterion by name. For mixed delivery both
+an approved ML candidate and checked report are required. Inconclusive is allowed when independently
+supported evidence establishes the limitation; disclose it. Draft publication is not final delivery.
+The analytical finish path is now supported; no dummy submission.csv is needed for analysis.
+"""
+ROLES[
+    "report_editor"
+] += """\nUse write_file to prepare chart/report JSON in your own workspace, then
+register_result(kind=chart/report, path=...). Charts use an existing prepared table revision. Reports
+contain summary, blocks [{result_id, caption, required}], limitations. You may publish_report with
+draft=true for preview; only tech lead publishes final delivery after evaluator assessments.
+"""
+ROLES[
+    "evaluator"
+] += """\nUse assess_result for analytical revisions. Independently execute verification
+AFTER registration. Save verification JSON in your JOB_DIR: result_id, sha256 (target artifact hash),
+status verified/refuted/inconclusive, checks [{name, passed, detail}], conclusion. Cite that path and
+job_id. A verified verdict needs all checks passing. Recompute from original inputs, check selection,
+units, denominators and uncertainty. For a report include each delivery criterion as a check name.
+Verify required dependencies as well as the report. You may not approve your own transitive evidence.
+"""
+
 SPECIALISTS = {"ml_engineer", "data_engineer", "data_analyst", "evaluator", "report_editor"}
 MANAGERS = {"tech_lead", "team_lead"}
 
 
-def prompt(role, revision=2):
-    common, roles = (LEGACY_COMMON, LEGACY_ROLES) if revision == 1 else (COMMON, ROLES)
+def prompt(role, revision=3):
+    common, roles = (
+        (LEGACY_COMMON, LEGACY_ROLES)
+        if revision == 1
+        else (V2_COMMON, V2_ROLES)
+        if revision == 2
+        else (COMMON, ROLES)
+    )
     return common + "\nYOUR ROLE:\n" + roles[role]

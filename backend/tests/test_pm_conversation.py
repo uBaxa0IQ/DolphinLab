@@ -577,6 +577,7 @@ class ConversationTest(unittest.TestCase):
             root={"id": "root"},
             config=SimpleNamespace(seconds=100, remaining=100),
             snapshot=lambda: {},
+            delivery=lambda: None,
         )
         asyncio.run(PlatformRuntime.control_tick(runtime))
         self.assertEqual(self.count(ResearchMail), 0)

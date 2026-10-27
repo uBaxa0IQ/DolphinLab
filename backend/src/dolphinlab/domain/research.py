@@ -13,6 +13,7 @@ class GoalSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
+    research_type: Literal["auto", "analysis", "ml", "mixed"] = "auto"
     question: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20000)
     ]
@@ -23,6 +24,8 @@ class GoalSpec(BaseModel):
 
     def task_text(self) -> str:
         parts = [self.question]
+        if self.research_type != "auto":
+            parts.append("Research type: " + self.research_type)
         for title, values in (
             ("Expected results", self.expected_outputs),
             ("Definitions", [f"{key}: {value}" for key, value in self.definitions.items()]),
