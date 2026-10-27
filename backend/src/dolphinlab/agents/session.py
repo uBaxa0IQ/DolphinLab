@@ -2,7 +2,6 @@ import copy
 import hashlib
 import json
 import os
-import shutil
 import time
 from datetime import timezone
 from pathlib import Path
@@ -11,6 +10,7 @@ import httpx
 from sqlalchemy import select
 
 from dolphinlab.agents.engine import PlatformRuntime
+from dolphinlab.common.files import digest, freeze_bytes
 from dolphinlab.infrastructure.connections import model_settings
 from dolphinlab.infrastructure.database import (
     DATA_ROOT,
@@ -41,38 +41,48 @@ class ResearchSession:
         task_dir = folder / "task"
         task = task_dir / "task.md"
         if task.exists():
+            for index, selected in enumerate(
+                (run.project_context or {}).get("selected_results", [])
+            ):
+                self.validate_frozen(
+                    task_dir / f"prior-result-{index + 1}.json", selected["sha256"]
+                )
+            for entry in run.inputs:
+                self.validate_frozen(
+                    task_dir / f"{entry['id'][:8]}_{entry['name']}", entry["sha256"]
+                )
             return task
         task_dir.mkdir(parents=True, exist_ok=True)
         from dolphinlab.domain.results import PAYLOADS, VerificationData
 
         schemas = task_dir / "result-schemas.json"
-        schemas.write_text(
+        freeze_bytes(
+            schemas,
             json.dumps(
                 {
                     **{name: contract.model_json_schema() for name, contract in PAYLOADS.items()},
                     "verification": VerificationData.model_json_schema(),
                 },
                 ensure_ascii=False,
-            ),
-            encoding="utf-8",
+            ).encode("utf-8"),
         )
-        schemas.chmod(0o444)
         context_path = task_dir / "project-context.json"
         project_context = copy.deepcopy(run.project_context or {})
         for index, selected in enumerate(project_context.get("selected_results", [])):
             origin = Path(selected["artifact_path"])
+            destination = task_dir / f"prior-result-{index + 1}.json"
+            if destination.exists():
+                origin = destination
             if not origin.is_file() or origin.stat().st_size > 1024 * 1024:
                 raise ValueError("Selected historical result is missing or oversized")
             raw = origin.read_bytes()
             if hashlib.sha256(raw).hexdigest() != selected["sha256"]:
                 raise ValueError("Selected historical result changed after run creation")
-            destination = task_dir / f"prior-result-{index + 1}.json"
-            destination.write_bytes(raw)
-            destination.chmod(0o444)
+            freeze_bytes(destination, raw)
             selected["origin_path"] = selected["artifact_path"]
             selected["artifact_path"] = str(destination)
-        context_path.write_text(
-            json.dumps(project_context, ensure_ascii=False, indent=2), encoding="utf-8"
+        freeze_bytes(
+            context_path, json.dumps(project_context, ensure_ascii=False, indent=2).encode("utf-8")
         )
         context_index = {
             "full_snapshot": str(context_path),
@@ -139,10 +149,10 @@ class ResearchSession:
             origin = DATA_ROOT / "projects" / run.project_id / "inputs" / entry["stored_name"]
             name = f"{entry['id'][:8]}_{entry['name']}"
             destination = task_dir / name
-            shutil.copy2(origin, destination)
-            if hashlib.sha256(destination.read_bytes()).hexdigest() != entry["sha256"]:
+            raw = (destination if destination.exists() else origin).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != entry["sha256"]:
                 raise ValueError("Input file changed after upload; restore the original data")
-            destination.chmod(0o444)
+            freeze_bytes(destination, raw)
             files.append(
                 {
                     "original_name": entry["name"],
@@ -152,23 +162,30 @@ class ResearchSession:
             )
             if entry["name"].lower().endswith(".md"):
                 descriptions.append(destination.read_text(encoding="utf-8"))
-        task.write_text(
-            "\n\n".join(descriptions)
-            + "\n\n# Provided immutable input files\n"
-            + json.dumps(files, ensure_ascii=False, indent=2)
-            + "\n\nUse these provided paths rather than historical paths in the task text. "
-            "Choose delivery from the frozen goal: analysis requires registered results and an "
-            "independently checked report; ML requires a candidate submission.csv in JOB_DIR "
-            "registered for independent review; mixed requires both. The runtime publishes "
-            "approved deliveries. Do not overwrite published files from experiment code.\n"
-            + "\nExact analytical JSON schemas (read before creating payloads): "
-            + str(schemas)
-            + "\n"
-            + "\n\n# Saved project context (historical claims retain their status)\n"
-            + json.dumps(context_index, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        freeze_bytes(
+            task,
+            (
+                "\n\n".join(descriptions)
+                + "\n\n# Provided immutable input files\n"
+                + json.dumps(files, ensure_ascii=False, indent=2)
+                + "\n\nUse these provided paths rather than historical paths in the task text. "
+                "Choose delivery from the frozen goal: analysis requires registered results and an "
+                "independently checked report; ML requires a candidate submission.csv in JOB_DIR "
+                "registered for independent review; mixed requires both. The runtime publishes "
+                "approved deliveries. Do not overwrite published files from experiment code.\n"
+                + "\nExact analytical JSON schemas (read before creating payloads): "
+                + str(schemas)
+                + "\n"
+                + "\n\n# Saved project context (historical claims retain their status)\n"
+                + json.dumps(context_index, ensure_ascii=False, indent=2)
+            ).encode("utf-8"),
         )
         return task
+
+    @staticmethod
+    def validate_frozen(path, expected_hash):
+        if not path.is_file() or path.is_symlink() or digest(path) != expected_hash:
+            raise ValueError(f"Frozen input or historical evidence changed: {path.name}")
 
     def resume_clock(self, store, run):
         with Session.begin() as db:

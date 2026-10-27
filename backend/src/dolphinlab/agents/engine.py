@@ -79,6 +79,25 @@ class PlatformRuntime(Runtime):
             monitor_factory=PlatformMonitor,
         )
 
+    def tools_for(self, agent):
+        tools = super().tools_for(agent)
+        # Compatible decoders may emit only required properties, even when the
+        # model explicitly intends to pass an optional one. Reflect existing
+        # execution requirements in the request without mutating frozen profiles.
+        for tool in tools:
+            function = tool["function"]
+            required = function["parameters"]["required"]
+            if function["name"] == "register_result":
+                fields = ["dependencies"]
+                if agent["role"] != "report_editor":
+                    fields.append("job_id")
+                required.extend(field for field in fields if field not in required)
+            elif function["name"] == "publish_report" and "draft" not in required:
+                required.append("draft")
+            elif function["name"] == "send_message" and "kind" not in required:
+                required.append("kind")
+        return tools
+
     def state(self, agent):
         state = super().state(agent)
         state["allowed_stack"] = self.capabilities

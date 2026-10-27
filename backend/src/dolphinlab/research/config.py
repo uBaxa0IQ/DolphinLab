@@ -38,14 +38,16 @@ class Config:
     context_recent_exchanges: int = 6
     context_payload_bytes: int = 16000
     context_window: int | None = field(
-        default_factory=lambda: int(os.environ["MODEL_CONTEXT_TOKENS"])
-        if os.getenv("MODEL_CONTEXT_TOKENS")
-        else None
+        default_factory=lambda: (
+            int(os.environ["MODEL_CONTEXT_TOKENS"]) if os.getenv("MODEL_CONTEXT_TOKENS") else None
+        )
     )
     generation_reserve: int | None = field(
-        default_factory=lambda: int(os.environ["MODEL_GENERATION_RESERVE"])
-        if os.getenv("MODEL_GENERATION_RESERVE")
-        else None
+        default_factory=lambda: (
+            int(os.environ["MODEL_GENERATION_RESERVE"])
+            if os.getenv("MODEL_GENERATION_RESERVE")
+            else None
+        )
     )
     log_bytes: int = 2_000_000
     resume: bool = False

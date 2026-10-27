@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 import type { Project, ResearchRun } from "../../types";
 import type {
@@ -42,6 +42,7 @@ export default function ReportPanel({ project }: { project: Project }) {
   const [index, setIndex] = useState<ResultIndex | null>(null),
     [pageId, setPageId] = useState(""),
     [error, setError] = useState("");
+  const manualPageSelection = useRef(false);
   useEffect(() => {
     let active = true;
     api
@@ -70,7 +71,7 @@ export default function ReportPanel({ project }: { project: Project }) {
         if (active) {
           setIndex(data);
           setPageId((id) =>
-            data.pages.some((p) => p.id === id)
+            manualPageSelection.current && data.pages.some((p) => p.id === id)
               ? id
               : data.current?.page_id || data.pages.at(-1)?.id || "",
           );
@@ -97,7 +98,12 @@ export default function ReportPanel({ project }: { project: Project }) {
           <select
             aria-label="Запуск отчёта"
             value={runId}
-            onChange={(e) => setRunId(e.target.value)}
+            onChange={(e) => {
+              manualPageSelection.current = false;
+              setIndex(null);
+              setPageId("");
+              setRunId(e.target.value);
+            }}
           >
             {runs.map((r) => (
               <option value={r.id} key={r.id}>
@@ -123,7 +129,10 @@ export default function ReportPanel({ project }: { project: Project }) {
                 <select
                   aria-label="Версия страницы отчёта"
                   value={pageId}
-                  onChange={(e) => setPageId(e.target.value)}
+                  onChange={(e) => {
+                    manualPageSelection.current = true;
+                    setPageId(e.target.value);
+                  }}
                 >
                   {index.pages.map((p, i) => (
                     <option key={p.id} value={p.id}>

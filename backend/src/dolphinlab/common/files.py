@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
 
 
@@ -29,3 +30,25 @@ def digest(path):
         while chunk := stream.read(1024 * 1024):
             h.update(chunk)
     return h.hexdigest()
+
+
+def freeze_bytes(target, content):
+    """Commit an immutable file atomically; accept an identical interrupted retry."""
+    target = Path(target)
+    if target.exists():
+        if target.is_symlink() or target.read_bytes() != content:
+            raise ValueError(f"Frozen file changed: {target.name}")
+        target.chmod(0o444)
+        return
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+        target.chmod(0o444)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)

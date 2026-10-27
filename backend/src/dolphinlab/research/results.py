@@ -74,7 +74,11 @@ class ResultRegistry:
         elif presentation and agent["role"] == "report_editor":
             allowed = Path(agent["workspace"]).resolve()
         else:
-            raise ValueError("A scientific result needs an executed source job")
+            raise ValueError(
+                "A scientific result requires job_id: pass the ID returned by your successful "
+                "run_python call to register_result, together with path. A path alone does not "
+                "select a source job. Only report_editor may omit job_id for chart/report."
+            )
         if not path.is_relative_to(allowed) or not path.is_file() or path.is_symlink():
             raise ValueError("Artifact must belong to the cited job or your presentation workspace")
         if not 0 < path.stat().st_size <= 1024 * 1024:

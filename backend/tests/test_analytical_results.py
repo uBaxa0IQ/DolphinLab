@@ -388,6 +388,40 @@ Path(os.environ['JOB_DIR'],'verification.json').write_text(json.dumps(evidence,e
         self.assertEqual(
             self.rt.store.get("page_revision", page["id"])["statuses"][table["id"]], "verified"
         )
+
+    def test_interrupted_publication_keeps_previous_page_and_retries_atomically(self):
+        table = self.table()
+        self.assess(table)
+        first_report = self.report([table])
+        self.assess(first_report)
+        first = self.dispatch(
+            self.rt.root, "publish_report", report_id=first_report["id"], outcome="complete"
+        )
+        next_report = self.report([table])
+        self.assess(next_report)
+        put = self.rt.store.put
+
+        def interrupted(kind, ident, data):
+            if kind == "report_publication":
+                raise OSError("Crash after preparing page, before updating publication")
+            return put(kind, ident, data)
+
+        with mock_patch.object(self.rt.store, "put", side_effect=interrupted):
+            with self.assertRaises(OSError):
+                self.dispatch(
+                    self.rt.root, "publish_report", report_id=next_report["id"], outcome="complete"
+                )
+        self.rt.store.close()
+        self.rt = self.runtime(resume=True)
+        index = ResultsService().index(self.pid, self.run["id"])
+        self.assertEqual(index["current"]["page_id"], first["id"])
+        self.assertEqual([p["id"] for p in index["pages"]], [first["id"]])
+        published = self.dispatch(
+            self.rt.root, "publish_report", report_id=next_report["id"], outcome="complete"
+        )
+        self.assertEqual(self.rt.results.current()["page_id"], published["id"])
+        self.assertEqual(len(self.rt.store.all("page_revision")), 2)
+        self.assertEqual(self.rt.store.get("page_revision", first["id"]), first)
         artifact = self.rt.store.get("artifact", table["artifact_id"])
         Path(artifact["path"]).write_text("{}")
         self.assertEqual(self.rt.results.status(self.rt.results.get(table["id"])), "broken")
@@ -503,6 +537,19 @@ Path(os.environ['JOB_DIR'],'verification.json').write_text(json.dumps(evidence,e
                 job_id=job["id"],
                 path=str(Path(job["folder"]) / "v.json"),
             )
+
+    def test_missing_source_job_requests_explicit_id_without_registering_a_result(self):
+        table = self.table()
+        artifact = self.rt.store.get("artifact", table["artifact_id"])
+        with self.assertRaisesRegex(ValueError, "requires job_id"):
+            self.dispatch(
+                self.author,
+                "register_result",
+                kind="table",
+                title="Missing job",
+                path=artifact["source_path"],
+            )
+        self.assertEqual(len(self.rt.store.all("result_revision")), 1)
 
     def test_damaged_verification_evidence_requires_reassessment(self):
         table = self.table()

@@ -165,6 +165,23 @@ class DynamicStaffingTest(unittest.TestCase):
             first_result_in_seconds=30,
         )
 
+    def test_compatible_result_tools_preserve_source_job_dependencies_and_draft(self):
+        team = self.team("data_analyst", "report_editor", "evaluator")
+        for role in ("data_analyst", "report_editor", "evaluator"):
+            actor = self.member(team, role)
+            frozen = copy.deepcopy(self.rt.staffing.profile(actor)["tools"])
+            sent = {t["function"]["name"]: t["function"] for t in self.rt.tools_for(actor)}
+            required = sent["register_result"]["parameters"]["required"]
+            self.assertIn("dependencies", required)
+            self.assertEqual("job_id" in required, role != "report_editor")
+            self.assertIn("kind", sent["send_message"]["parameters"]["required"])
+            if role == "report_editor":
+                self.assertIn("draft", sent["publish_report"]["parameters"]["required"])
+            self.assertEqual(self.rt.staffing.profile(actor)["tools"], frozen)
+        root_tools = {t["function"]["name"]: t["function"] for t in self.rt.tools_for(self.rt.root)}
+        self.assertIn("draft", root_tools["publish_report"]["parameters"]["required"])
+        self.assertIn("kind", root_tools["send_message"]["parameters"]["required"])
+
     def test_ml_and_analysis_have_different_compositions_and_optional_lead(self):
         analysis = self.team("data_analyst", "evaluator")
         ml = self.team("ml_engineer", "data_engineer", "evaluator", coordinator=True)
