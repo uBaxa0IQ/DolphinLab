@@ -124,7 +124,7 @@ export default function ProjectSettingsPanel({
     if (project.demo) {
       try {
         const stored = JSON.parse(
-          localStorage.getItem(`sonder-demo-policy:${project.id}`) || "null",
+          localStorage.getItem(`dolphinlab-demo-policy:${project.id}`) || "null",
         );
         if (
           stored &&
@@ -186,7 +186,7 @@ export default function ProjectSettingsPanel({
     try {
       if (project.demo)
         localStorage.setItem(
-          `sonder-demo-policy:${project.id}`,
+          `dolphinlab-demo-policy:${project.id}`,
           JSON.stringify({ ...policy, revision: policy.revision + 1 }),
         );
       else await api.saveProjectSettings(project.id, policy);
