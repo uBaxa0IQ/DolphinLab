@@ -9,7 +9,6 @@ docker compose --env-file .env.docker.local logs --tail 100 api worker
 
 Сайт: http://localhost:8080 . Нужен Docker Compose. Bootstrap создаёт локальный файл, не перезаписывает существующий и не выводит пароли. Он генерирует пароль PostgreSQL, ключ Fernet и токен executor. API-ключ модели вводится в интерфейсе и хранится зашифрованным в PostgreSQL.
 
-Текущие образы собираются для Linux/amd64; ARM-сборка не проверена. Host Python нужен только для короткого bootstrap-скрипта, ML/Node/PostgreSQL устанавливаются внутри контейнеров.
 
 Compose ждёт PostgreSQL healthcheck и завершения Alembic перед API/worker. Использованы `service_healthy` и `service_completed_successfully`. [Docker Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/)
 
@@ -23,7 +22,6 @@ PostgreSQL содержит прикладное состояние, иссле�
 docker compose --env-file .env.docker.local up -d --no-deps --force-recreate api worker
 ```
 
-После включения worker обрабатывает pending-сообщения PM. Исследование создаётся кнопкой «Начать». Старый конкурсный `.env` не импортируется.
 
 `EXECUTOR_CPUS` и `EXECUTOR_MEMORY_GB` задают доступные контейнеру ресурсы; проект не может запросить больше. Один worker исполняет одно исследование одновременно, остальные ждут. Параллельность запросов ограничивается на уровне проекта, включая PM активного Run, и всего worker.
 

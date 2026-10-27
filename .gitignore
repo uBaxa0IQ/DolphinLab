@@ -1,23 +1,39 @@
+# Credentials and local configuration
 .env
-__pycache__/
-*.pyc
-.research/
-dist/
-examples/**/submission.csv
-test-output/
+.env.*
+!.env.docker.example
+
+# Python environments and generated files
 .venv/
-STATUS.md
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Supplied datasets and local credentials stay outside version control
-examples/**/*.csv
-.env.*.local
-
-# Local platform preview and application data
+# Frontend dependencies and build output
 node_modules/
-apps/web/dist/
-.workspace-data/
+dist/
+build/
 *.tsbuildinfo
+
+# Workspace data, runtime outputs and backups
+.workspace-data/
 .platform-logs/
-.platform-venv/
+/data/
+/runs/
+/uploads/
+*.log
+*.sqlite*
 *.dump
 backup-*.tar.gz
+secret.key
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

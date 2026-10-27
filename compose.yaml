@@ -54,7 +54,7 @@ services:
     build:
       context: .
       target: worker
-    command: [python, -m, research_platform.worker]
+    command: [python, -m, sonder.worker]
     networks: [backend, execution]
     depends_on:
       migrate: {condition: service_completed_successfully}
@@ -87,7 +87,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: frontend/Dockerfile
     restart: unless-stopped
     ports: ["${BIND_HOST:-127.0.0.1}:${WEB_PORT:-8080}:80"]
     networks: [backend]

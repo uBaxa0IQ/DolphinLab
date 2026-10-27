@@ -1,21 +1,66 @@
 # Разработка
 
-Схема: `feature/* → dev → release/* → main → vX.Y.Z`.
+## Организация кода
 
-`main` — опубликованные версии, `dev` — интеграция. Ветки `feature/*`, `fix/*`, `chore/*` создаются от dev. `release/X.Y.Z` — стабилизация перед PR в main. `hotfix/*` — исправление от main с последующей синхронизацией dev через PR `sync/*`.
+Backend и executor — отдельные Python-пакеты со структурой `src`. Frontend организован по функциям продукта.
+HTTP-маршруты передают запросы application-сервисам; координация исследования не зависит от HTTP.
+Агентное ядро получает хранилище, планировщик заданий и монитор через явные зависимости.
+PostgreSQL и удалённое выполнение реализуют инфраструктурные адаптеры.
 
-## Устройство
+Новая функция размещается в соответствующем модуле. Общие компоненты интерфейса находятся в `frontend/src/components`, API-клиент — в `frontend/src/lib`.
+Не переносите бизнес-логику в роутеры и не добавляйте готовые ML-пайплайны в координатор: методы исследования выбирают агенты.
 
-- `apps/web`: React/TypeScript и nginx.
-- `apps/api/research_platform`: FastAPI, worker, LangGraph, PostgreSQL store, политики, секреты и учёт расходов.
-- `apps/executor`: внутренний сервис запуска кода с отдельными ML-зависимостями.
-- `research_*.py`: переиспользуемое ядро; платформенные точки расширения сохраняют конкурсный CLI.
-- `migrations`: Alembic. Таблицы checkpoints мигрирует официальный PostgresSaver.
+## Локальная среда
 
-Основной запуск — Docker Compose из README. Для frontend dev-сервера: `cd apps/web`, `npm ci`, `npm run dev`. Переменная `VITE_API_TARGET=http://localhost:8080` направляет proxy к Docker; по умолчанию также используется Docker 8080.
+Основной запуск описан в README. Для разработки frontend при запущенном backend:
 
-Не коммитить ключи, `.env.docker.local`, базы, пользовательские данные и результаты. Секреты не включаются в контекст агента. Стратегию задаёт промпт, жёсткие ресурсы — политика и планировщик. Успешное выполнение кода и независимая проверка результата — разные состояния.
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
-Docker устанавливает полные `requirements.lock`; прямые зависимости описаны в requirements.txt. Для обновления API-lock: собрать отдельный образ `docker build --target platform --build-arg API_REQUIREMENTS=apps/api/requirements.txt -t sonder-api-deps .`, затем сохранить вывод `docker run --rm --network none sonder-api-deps python -m pip freeze` в apps/api/requirements.lock. Для executor аналогично использовать target executor и EXECUTOR_REQUIREMENTS=apps/executor/requirements.txt. Оба файла коммитятся вместе.
+Vite проксирует `/api` на `http://localhost:8080`. Другой адрес задаётся через `VITE_API_TARGET`.
 
-Изменения БД сопровождаются новой постоянной миграцией; применённые ревизии не редактируются. Активный Run использует snapshot задачи, файлов и настроек. CI собирает код/контейнеры и проверяет отслеживаемые секреты, но не вызывает модель. Платные проверки выполняются отдельно с явным бюджетом.
+Для установки Python-пакетов в отдельные виртуальные окружения:
+
+```bash
+pip install -e ./backend
+pip install -e ./executor
+```
+
+Executor запускается в Linux-контейнере. Backend требует PostgreSQL и настроенных переменных окружения.
+Миграции применяются командой `alembic -c backend/alembic.ini upgrade head`.
+
+## Зависимости
+
+`requirements.txt` описывает прямые зависимости, `requirements.lock` фиксирует полную среду Docker.
+При обновлении зависимости меняются оба файла соответствующего сервиса.
+Backend и ML-исполнитель имеют разные окружения.
+
+Для обновления lock-файла backend можно собрать образ с `--build-arg API_REQUIREMENTS=backend/requirements.txt`, затем сохранить `python -m pip freeze` из этого образа в `backend/requirements.lock`. Для executor используются target `executor` и `EXECUTOR_REQUIREMENTS=executor/requirements.txt`.
+
+## Стиль и сборка
+
+Python форматируется Ruff, TypeScript и CSS — Prettier. Настройки находятся в `pyproject.toml` соответствующих пакетов и `frontend/.prettierrc.json`.
+
+```bash
+ruff check backend/src executor/src
+ruff format backend/src executor/src
+cd frontend
+npm run format:check
+npm run build
+```
+
+CI проверяет исходники, frontend, контейнерные сборки и отслеживаемые секреты. Сборка не обращается к API модели.
+Изменения БД сопровождаются новой миграцией; применённые ревизии не редактируются.
+Запуск исследования использует зафиксированные копии задачи, входов и настроек.
+
+## Ветки
+
+`feature/*`, `fix/*`, `chore/*` создаются от `dev` и возвращаются в `dev` через PR.
+Для выпуска создаётся `release/X.Y.Z` → PR в `main` → тег `vX.Y.Z`.
+Изменения релиза синхронизируются обратно в `dev` через `sync/*`.
+Исправления опубликованной версии идут через `hotfix/*` от `main`.
+
+Не коммитьте ключи, локальные env, базы, датасеты и результаты исследований.

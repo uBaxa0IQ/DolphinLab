@@ -28,7 +28,7 @@ jobs:
           - {name: api, target: platform, file: Dockerfile}
           - {name: worker, target: worker, file: Dockerfile}
           - {name: executor, target: executor, file: Dockerfile}
-          - {name: web, target: web, file: apps/web/Dockerfile}
+          - {name: web, target: web, file: frontend/Dockerfile}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4

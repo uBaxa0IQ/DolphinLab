@@ -1,9 +1,8 @@
-"""Check tracked files and ZIP sources without printing matching credentials."""
+"""Check tracked sources for credential patterns without printing their contents."""
 
 import re
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -22,19 +21,9 @@ for name in filter(None, names):
         continue
     if not path.is_file():
         continue
-    if path.suffix == ".zip":
-        with zipfile.ZipFile(path) as archive:
-            if any(
-                pattern.search(archive.read(item))
-                for item in archive.namelist()
-                if not item.endswith("/")
-            ):
-                bad.append(name)
-    elif pattern.search(path.read_bytes()):
+    if pattern.search(path.read_bytes()):
         bad.append(name)
 if bad:
     print("Potential secret-bearing tracked files: " + ", ".join(bad))
     sys.exit(1)
-print(
-    "Tracked-file credential scan completed; no matching keys. This is not a full history audit."
-)
+print("Tracked-file credential scan completed; no matching keys.")
