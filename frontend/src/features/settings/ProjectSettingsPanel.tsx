@@ -124,7 +124,8 @@ export default function ProjectSettingsPanel({
     if (project.demo) {
       try {
         const stored = JSON.parse(
-          localStorage.getItem(`dolphinlab-demo-policy:${project.id}`) || "null",
+          localStorage.getItem(`dolphinlab-demo-policy:${project.id}`) ||
+            "null",
         );
         if (
           stored &&
