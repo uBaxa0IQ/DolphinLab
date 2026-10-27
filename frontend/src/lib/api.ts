@@ -78,6 +78,21 @@ export const api = {
       `/projects/${id}/runs/${run}/control`,
       json({ action }),
     ),
+  runBudget: (
+    id: string,
+    run: string,
+    amount: number,
+    revision: number,
+    clientId: string,
+  ) =>
+    request<ResearchRun>(`/projects/${id}/runs/${run}/budget`, {
+      ...json({
+        api_budget: amount,
+        expected_revision: revision,
+        client_id: clientId,
+      }),
+      method: "PUT",
+    }),
   artifacts: (id: string, run: string) =>
     request<{ path: string; size: number }[]>(
       `/projects/${id}/runs/${run}/artifacts`,

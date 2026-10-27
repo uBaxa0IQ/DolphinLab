@@ -114,6 +114,14 @@ def memory_records(db, project_id, goal_id, input_ids, *, include_stale=False, o
 
 def run_context(db, project_id, goal_id, input_ids, parent_iteration_id):
     """Freeze selected memory and earlier-run references at Run creation."""
+    from dolphinlab.domain.research import GoalSpec
+
+    from .result_context import selected_results
+
+    goal = db.get(GoalRevision, goal_id)
+    chosen = selected_results(
+        db, project_id, GoalSpec.model_validate(goal.spec).prior_results, input_ids
+    )
     ancestors, previous_runs, ancestor_goals = [], [], set()
     while parent_iteration_id and len(ancestors) < 10:
         item = db.scalar(
@@ -179,6 +187,7 @@ def run_context(db, project_id, goal_id, input_ids, parent_iteration_id):
         "memory": memory_records(db, project_id, goal_id, input_ids)[:20],
         "historical_memory": historical,
         "previous_runs": references,
+        "selected_results": chosen,
         "findings": findings,
         "ancestor_iteration_ids": ancestors,
         "notice": "Historical claims retain their status; check applicability and exact evidence.",
@@ -200,6 +209,8 @@ class KnowledgeService(Service):
             )
 
     def context(self, message_id, *, history_hash=""):
+        from .result_context import result_index
+
         with self.sessions.begin() as db:
             source = db.get(Message, message_id)
             if not source:
@@ -325,6 +336,7 @@ class KnowledgeService(Service):
                         "iteration_id": item.iteration_id,
                         "status": item.status,
                         "task_excerpt": item.task_description[:400],
+                        "results": result_index(item.id),
                     }
                     for item in previous_runs
                 ],

@@ -10,6 +10,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch as mock_patch
 from uuid import uuid4
 
 import test_dynamic_staffing as staffing
@@ -18,7 +19,9 @@ from fastapi import HTTPException
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
+from dolphinlab.api.schemas import CreateGoal
 from dolphinlab.application.results import ResultsService
+from dolphinlab.domain.research import GoalSpec
 from dolphinlab.infrastructure.database import InputFile, ResearchObject, Run, Session
 from dolphinlab.infrastructure.store import PostgresStore
 from dolphinlab.research.config import Config
@@ -507,6 +510,88 @@ Path(os.environ['JOB_DIR'],'verification.json').write_text(json.dumps(evidence,e
         verification = self.rt.store.get("artifact", verdict["artifact_id"])
         Path(verification["path"]).write_text("{}")
         self.assertEqual(self.rt.results.status(self.rt.results.get(table["id"])), "broken")
+
+    def continuation(self, table):
+        with Session.begin() as db:
+            db.get(Run, self.run["id"]).status = "completed"
+        body = CreateGoal(
+            client_id=uuid4(),
+            expected_revision=1,
+            goal=GoalSpec(
+                question="Проверить влияние скидок без повторения месячного расчёта",
+                research_type="analysis",
+                prior_results=[
+                    {
+                        "run_id": self.run["id"],
+                        "result_id": table["id"],
+                        "sha256": table["sha256"],
+                        "reason": "Переиспользовать месячные итоги",
+                    }
+                ],
+            ),
+        )
+        self.research.create_goal(self.pid, body)
+        return self.start()
+
+    def test_continuation_freezes_selected_evidence_and_materializes_it_after_restart(self):
+        from dolphinlab.agents.session import ResearchSession
+        from dolphinlab.infrastructure.database import DATA_ROOT, Project
+
+        table = self.table()
+        self.assess(table)
+        next_run = self.continuation(table)
+        with Session() as db:
+            row = db.get(Run, next_run["id"])
+            selected = row.project_context["selected_results"][0]
+            self.assertEqual(selected["id"], table["id"])
+            self.assertEqual(selected["status"], "verified")
+            self.assertTrue(selected["applicable_to_inputs"])
+            self.assertEqual(row.project_context["previous_runs"][0]["id"], self.run["id"])
+            item = db.get(InputFile, row.inputs[0]["id"])
+            upload = DATA_ROOT / "projects" / self.pid / "inputs" / item.stored_name
+            upload.parent.mkdir(parents=True, exist_ok=True)
+            upload.write_bytes(self.sales.read_bytes())
+            with mock_patch("dolphinlab.agents.session.RUNS_ROOT", Path(os.environ["RUNS_ROOT"])):
+                # New service instances read persisted state; no reference to the previous runtime.
+                task = ResearchSession(None, None).materialize(row, db.get(Project, self.pid))
+                self.assertIn(
+                    "analysis requires registered results", task.read_text(encoding="utf-8")
+                )
+                frozen = task.parent / "prior-result-1.json"
+                self.assertEqual(hashlib.sha256(frozen.read_bytes()).hexdigest(), table["sha256"])
+                manifest = json.loads(
+                    (task.parent / "project-context.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(manifest["selected_results"][0]["artifact_path"], str(frozen))
+                self.assertTrue((task.parent / "result-schemas.json").is_file())
+        # A new run receives no automatic approval or new-run result revisions.
+        self.assertEqual(ResultsService().index(self.pid, next_run["id"])["results"], [])
+        self.assess(table, "refuted")
+        with Session() as db:
+            saved = db.get(Run, next_run["id"]).project_context["selected_results"][0]
+            self.assertEqual(saved["status"], "verified")
+
+    def test_prior_result_scope_hash_and_integrity_are_enforced(self):
+        from dolphinlab.application.result_context import selected_results, validate_prior_results
+        from dolphinlab.domain.research import PriorResult
+
+        table = self.table()
+        with Session.begin() as db:
+            db.get(Run, self.run["id"]).status = "completed"
+        ref = PriorResult(
+            run_id=self.run["id"], result_id=table["id"], sha256=table["sha256"], reason="Reuse"
+        )
+        with Session() as db:
+            with self.assertRaises(HTTPException):
+                validate_prior_results(db, str(uuid4()), [ref])
+            with self.assertRaises(HTTPException):
+                validate_prior_results(db, self.pid, [ref.model_copy(update={"sha256": "0" * 64})])
+            chosen = selected_results(db, self.pid, [ref], set())
+            self.assertFalse(chosen[0]["applicable_to_inputs"])
+            artifact = self.rt.store.get("artifact", table["artifact_id"])
+            Path(artifact["path"]).write_text("{}", encoding="utf-8")
+            with self.assertRaises(HTTPException):
+                selected_results(db, self.pid, [ref], {f["id"] for f in self.inputs})
 
     def test_explicit_goal_type_and_declared_criteria_cannot_be_silently_changed(self):
         with self.assertRaises(ValueError):

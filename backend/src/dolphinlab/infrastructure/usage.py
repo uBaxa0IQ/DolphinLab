@@ -1,11 +1,20 @@
-"""Conservative per-run admission. No output-token cap is sent to the provider."""
+"""Conservative per-run admission, with optional enforced request ceilings."""
 
 import asyncio
+import math
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from dolphinlab.infrastructure.database import Run, Session
-from dolphinlab.infrastructure.llm import APIUnavailable, ResponseProblem
+from dolphinlab.infrastructure.llm import (
+    APIUnavailable,
+    ModelClient,
+    RequestBudgetExceeded,
+    ResponseProblem,
+)
+
+
+def run_budget(run):
+    return (run.usage or {}).get("budget_limit", run.policy["limits"].get("api_budget"))
 
 
 class Pricing(BaseModel):
@@ -15,20 +24,43 @@ class Pricing(BaseModel):
     output_per_million: float = Field(ge=0)
     max_input_tokens: int = Field(gt=0)
     max_output_tokens: int = Field(gt=0)
+    enforce_request_limits: bool = False
+    provider_cost_currency: str | None = Field(default=None, min_length=1, max_length=12)
+
+    def reported_cost(self, usage):
+        value = (usage or {}).get("cost")
+        if (
+            self.provider_cost_currency == self.currency
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        ):
+            return float(value)
+        return None
 
     @property
     def reservation(self):
+        return self.reserve_input(self.max_input_tokens)
+
+    def reserve_input(self, tokens):
         return (
             1.1
-            * (
-                self.max_input_tokens * self.input_per_million
-                + self.max_output_tokens * self.output_per_million
-            )
+            * (tokens * self.input_per_million + self.max_output_tokens * self.output_per_million)
             / 1_000_000
+        )
+
+    def reservation_for(self, messages, tools=None):
+        if not self.enforce_request_limits:
+            return self.reservation
+        return self.reserve_input(
+            min(self.max_input_tokens, ModelClient.request_input_units(messages, tools))
         )
 
 
 def tracked(client, run_id):
+    from dolphinlab.infrastructure.database import Run, Session
+
     original = client.complete
 
     async def complete(*args, **kwargs):
@@ -39,25 +71,35 @@ def tracked(client, run_id):
                 if run.connection.get("pricing")
                 else None
             )
-            budget = run.policy["limits"].get("api_budget")
-        reservation = pricing.reservation if pricing else 0.0
+        reservation = (
+            pricing.reservation_for(
+                args[0] if args else kwargs.get("messages", []),
+                args[1] if len(args) > 1 else kwargs.get("tools"),
+            )
+            if pricing
+            else 0.0
+        )
         while True:
             with Session.begin() as db:
                 run = db.get(Run, run_id, with_for_update=True)
+                budget = run_budget(run)
                 usage = dict(run.usage or {})
                 pending = usage.get("pending_requests", 0)
                 if (
                     budget is None
-                    or usage.get("accounted_cost", 0.0) + (pending + 1) * reservation <= budget
+                    or usage.get("accounted_cost", 0.0)
+                    + usage.get("reserved_cost", 0.0)
+                    + reservation
+                    <= budget
                 ):
                     usage["pending_requests"] = pending + 1
-                    usage["reserved_cost"] = (pending + 1) * reservation
+                    usage["reserved_cost"] = usage.get("reserved_cost", 0.0) + reservation
                     usage.setdefault("requests", 0)
                     usage.setdefault("currency", pricing.currency if pricing else "unavailable")
                     run.usage = usage
                     break
                 if not pending:
-                    raise APIUnavailable(
+                    raise RequestBudgetExceeded(
                         "Project API budget has insufficient headroom for a complete provider response"
                     )
             await asyncio.sleep(0.2)
@@ -81,7 +123,10 @@ def tracked(client, run_id):
             )
             raise
         finally:
-            if (
+            actual = pricing.reported_cost(reported) if pricing else None
+            if actual is not None:
+                cost, currency = actual, pricing.currency
+            elif (
                 reported
                 and pricing
                 and all(reported.get(k) is not None for k in ("prompt_tokens", "completion_tokens"))
@@ -105,7 +150,9 @@ def tracked(client, run_id):
                 run = db.get(Run, run_id, with_for_update=True)
                 ledger = dict(run.usage or {})
                 ledger["pending_requests"] = max(0, ledger.get("pending_requests", 1) - 1)
-                ledger["reserved_cost"] = ledger["pending_requests"] * reservation
+                ledger["reserved_cost"] = max(
+                    0.0, ledger.get("reserved_cost", reservation) - reservation
+                )
                 ledger["requests"] = ledger.get("requests", 0) + 1
                 ledger["prompt_tokens"] = ledger.get("prompt_tokens", 0) + (
                     (reported or {}).get("prompt_tokens") or 0

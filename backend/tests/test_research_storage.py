@@ -126,6 +126,118 @@ class ResearchStorageTest(unittest.TestCase):
         self.assertEqual(self.research.list_iterations(self.pid), [])
         self.assertEqual(self.runs.list_runs(self.pid), [])
 
+    def test_budget_amendment_is_explicit_versioned_scoped_and_preserves_frozen_policy(self):
+        from dolphinlab.api.schemas import UpdateRunBudget
+
+        self.seed_inputs()
+        original = self.start()
+        body = UpdateRunBudget(api_budget=8, expected_revision=0, client_id=uuid4())
+        self.assert_status(409, lambda: self.runs.update_budget(self.pid, original["id"], body))
+        with Session.begin() as db:
+            run = db.get(Run, original["id"])
+            run.connection = {
+                **run.connection,
+                "pricing": {
+                    "currency": "TEST",
+                    "input_per_million": 1000,
+                    "output_per_million": 1000,
+                    "max_input_tokens": 100,
+                    "max_output_tokens": 100,
+                },
+            }
+            run.usage = {"accounted_cost": 3, "reserved_cost": 2, "pending_requests": 1}
+        first = self.runs.update_budget(self.pid, original["id"], body)
+        self.assertEqual(self.runs.update_budget(self.pid, original["id"], body), first)
+        self.assertEqual(first["usage"]["budget_revision"], 1)
+        self.assertEqual(first["usage"]["budget_limit"], 8)
+        self.assertEqual(first["policy"], original["policy"])
+        self.assert_status(
+            409,
+            lambda: self.runs.update_budget(
+                self.pid, original["id"], body.model_copy(update={"api_budget": 9})
+            ),
+        )
+        self.assert_status(
+            409,
+            lambda: self.runs.update_budget(
+                self.pid,
+                original["id"],
+                UpdateRunBudget(api_budget=4, expected_revision=1, client_id=uuid4()),
+            ),
+        )
+        self.assert_status(
+            409,
+            lambda: self.runs.update_budget(
+                self.pid,
+                original["id"],
+                UpdateRunBudget(api_budget=9, expected_revision=0, client_id=uuid4()),
+            ),
+        )
+        other = self.projects.create_project(CreateProject(name="Other"))
+        self.assert_status(404, lambda: self.runs.update_budget(other["id"], original["id"], body))
+
+    def test_only_budget_failure_can_resume_and_cannot_overlap_another_run(self):
+        from dolphinlab.infrastructure.database import ResearchEvent, ResearchObject
+
+        self.seed_inputs()
+        original = self.start()
+        with Session.begin() as db:
+            row = db.get(Run, original["id"])
+            row.status = "failed"
+            db.add(
+                ResearchEvent(
+                    run_id=row.id, kind="model_error", data={"detail": "Invalid request"}, created=1
+                )
+            )
+        with patch("dolphinlab.application.runs.execution_enabled", return_value=True):
+            self.assert_status(
+                409,
+                lambda: self.runs.control_run(
+                    self.pid, original["id"], ControlRun(action="resume")
+                ),
+            )
+        with Session.begin() as db:
+            db.add(
+                ResearchEvent(
+                    run_id=original["id"],
+                    kind="model_error",
+                    data={
+                        "detail": "Project API budget has insufficient headroom for a complete provider response"
+                    },
+                    created=2,
+                )
+            )
+        other = self.start()
+        with patch("dolphinlab.application.runs.execution_enabled", return_value=True):
+            self.assert_status(
+                409,
+                lambda: self.runs.control_run(
+                    self.pid, original["id"], ControlRun(action="resume")
+                ),
+            )
+            self.runs.control_run(self.pid, other["id"], ControlRun(action="stop"))
+            resumed = self.runs.control_run(self.pid, original["id"], ControlRun(action="resume"))
+        self.assertEqual(resumed["status"], "queued")
+        for key in ("goal_snapshot", "policy", "iteration_id"):
+            self.assertEqual(resumed[key], original[key])
+        with Session.begin() as db:
+            db.get(Run, original["id"]).status = "failed"
+            db.add(
+                ResearchObject(
+                    run_id=original["id"],
+                    kind="run",
+                    object_id="current",
+                    data={"deadline_wall": 0},
+                )
+            )
+        with patch("dolphinlab.application.runs.execution_enabled", return_value=True):
+            self.assert_status(
+                409,
+                lambda: self.runs.control_run(
+                    self.pid, original["id"], ControlRun(action="resume")
+                ),
+            )
+
     def test_goal_retry_and_payload_conflict(self):
         body = self.new_goal()
         first = self.research.create_goal(self.pid, body)

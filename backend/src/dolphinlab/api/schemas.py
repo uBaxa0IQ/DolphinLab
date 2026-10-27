@@ -89,6 +89,13 @@ class ControlRun(BaseModel):
     action: str
 
 
+class UpdateRunBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    api_budget: float = Field(gt=0)
+    expected_revision: int = Field(ge=0)
+    client_id: UUID
+
+
 class CreateGoal(BaseModel):
     model_config = ConfigDict(extra="forbid")
     client_id: UUID

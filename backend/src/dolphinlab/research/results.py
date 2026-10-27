@@ -2,11 +2,30 @@
 
 import hashlib
 import json
+import re
 import time
+from collections import Counter
 from pathlib import Path
 
 from dolphinlab.common.serialization import uid
 from dolphinlab.domain.results import PAYLOADS, VerificationData
+
+
+def uncovered_criteria(criteria, checks):
+    """Explicit C1: identifiers are stable; unkeyed/ambiguous criteria need exact names."""
+
+    def key(text):
+        found = re.match(r"^(C[1-9]\d{0,2}):(?:\s|$)", text)
+        return found[1] if found else None
+
+    counts = Counter(key(c) for c in criteria)
+    names = {c["name"] for c in checks}
+    identifiers = {key(name) for name in names}
+    return [
+        c
+        for c in criteria
+        if c not in names and not (key(c) and counts[key(c)] == 1 and key(c) in identifiers)
+    ]
 
 
 class ResultRegistry:
@@ -278,8 +297,14 @@ class ResultRegistry:
         if not draft and any(statuses[ident] not in accepted for ident in closure):
             raise ValueError("Required report evidence is unverified, refuted or broken")
         assessment = self.latest_assessment(report["id"])
-        if not draft and not set(contract["criteria"]) <= {c["name"] for c in assessment["checks"]}:
-            raise ValueError("Report assessment must explicitly address every delivery criterion")
+        if not draft:
+            missing = uncovered_criteria(contract["criteria"], assessment["checks"])
+            if missing:
+                raise ValueError(
+                    "Report assessment must explicitly address every delivery criterion. "
+                    "Use these exact check.name strings (or their unique Cn: identifiers) "
+                    "in a new independent verification: " + json.dumps(missing, ensure_ascii=False)
+                )
         page = {
             "id": uid("page"),
             "report_id": report["id"],

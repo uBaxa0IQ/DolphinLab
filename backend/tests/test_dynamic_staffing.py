@@ -83,6 +83,21 @@ class DynamicStaffingTest(unittest.TestCase):
     reset = storage.ResearchStorageTest.reset
     start = storage.ResearchStorageTest.start
 
+    def test_expensive_request_blocks_only_its_agent_not_cheaper_coordinator_work(self):
+        from dolphinlab.infrastructure.llm import RequestBudgetExceeded
+
+        team = self.team("data_analyst")
+        actor = self.member(team, "data_analyst")
+
+        async def rejected(agent, tools):
+            raise RequestBudgetExceeded("Project API budget has insufficient headroom")
+
+        self.rt.execute_turn = rejected
+        asyncio.run(self.rt.turn(actor))
+        self.assertEqual(actor["state"], "blocked")
+        self.assertFalse(self.rt.api_blocked)
+        self.assertNotEqual(self.rt.root["state"], "blocked")
+
     @classmethod
     def setUpClass(cls):
         storage.ResearchStorageTest.setUpClass()

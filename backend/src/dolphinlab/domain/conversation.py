@@ -3,7 +3,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from dolphinlab.domain.research import GoalSpec
 
@@ -52,6 +52,17 @@ class MemoryNote(BaseModel):
 class FollowupSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     goal: GoalSpec
+
+    @field_validator("goal", mode="before")
+    @classmethod
+    def structured_goal(cls, value):
+        # Compatible providers sometimes encode a nested tool object as a JSON string.
+        # Decode only this structured field, then apply every GoalSpec validation normally.
+        if isinstance(value, str):
+            import json
+
+            value = json.loads(value)
+        return value
 
 
 class ResearchInstruction(BaseModel):

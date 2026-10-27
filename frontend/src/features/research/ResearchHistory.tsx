@@ -188,7 +188,8 @@ export default function ResearchHistory({
           {(current.goal.expected_outputs.length > 0 ||
             current.goal.constraints.length > 0 ||
             Object.keys(current.goal.definitions).length > 0 ||
-            current.goal.open_questions.length > 0) && (
+            current.goal.open_questions.length > 0 ||
+            (current.goal.prior_results?.length ?? 0) > 0) && (
             <details className="research-conditions">
               <summary>Результат и условия</summary>
               {current.goal.expected_outputs.map((item, i) => (
@@ -209,6 +210,14 @@ export default function ResearchHistory({
               {current.goal.open_questions.map((item, i) => (
                 <p key={`question-${i}`}>
                   <strong>Открытый вопрос:</strong> {item}
+                </p>
+              ))}
+              {current.goal.prior_results?.map((item) => (
+                <p key={`${item.run_id}:${item.result_id}`}>
+                  <strong>Используемый результат:</strong> {item.reason}
+                  <br />
+                  <code>{item.result_id}</code> · SHA256{" "}
+                  {item.sha256.slice(0, 12)}
                 </p>
               ))}
             </details>

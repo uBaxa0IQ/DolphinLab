@@ -40,6 +40,10 @@ class APIUnavailable(Exception):
     pass
 
 
+class RequestBudgetExceeded(APIUnavailable):
+    """This request cannot be admitted; cheaper work may still fit the run."""
+
+
 def is_context_error(error):
     text = str(error).lower()
     return any(
@@ -56,6 +60,8 @@ def is_context_error(error):
 
 
 def failure_kind(error):
+    if isinstance(error, RequestBudgetExceeded):
+        return Failure("budget", False, False)
     if isinstance(error, ResponseProblem):
         return Failure(error.category, True)
     if is_context_error(error):
@@ -171,16 +177,25 @@ class ModelClient:
         estimate = math.ceil(size * ratio) + 256
         window = self.config.context_window
         reserve = self.config.generation_reserve or (math.ceil(window * 0.25) if window else None)
+        budget_input = self.request_input_units(messages, tools)
+        ceiling = self.config.request_input_ceiling
         return {
             "window_tokens": window,
             "capacity_source": self.window_source,
             "estimated_input_tokens": estimate,
             "generation_reserve_tokens": reserve,
             "estimate_calibrated": bool(self.ratios),
-            "needs_compaction": bool(
-                window and self.ratios and estimate > (window - reserve) * 0.9
-            ),
+            "needs_compaction": bool(window and self.ratios and estimate > (window - reserve) * 0.9)
+            or bool(ceiling and budget_input > ceiling * 0.9),
+            "request_input_units": budget_input if ceiling else None,
+            "request_input_ceiling": ceiling,
         }
+
+    @classmethod
+    def request_input_units(cls, messages, tools=None):
+        # Conservative text-only admission, deliberately not a tokenizer measurement.
+        # UTF-8 bytes plus generous chat/schema framing; images/audio are rejected below.
+        return cls.payload_bytes(messages, tools) + 4096 + 256 * (len(messages) + len(tools or []))
 
     def learn_capacity(self, error):
         text = str(error)
@@ -200,6 +215,16 @@ class ModelClient:
                     return
 
     async def complete(self, messages, tools=None):
+        if self.config.request_input_ceiling:
+            if any(
+                not isinstance(message.get("content", ""), (str, type(None)))
+                for message in messages
+            ):
+                raise APIUnavailable(
+                    "Budgeted request ceilings currently support text messages only"
+                )
+            if self.request_input_units(messages, tools) > self.config.request_input_ceiling:
+                raise APIUnavailable("context window: local request input ceiling exceeded")
         ident = uid("request")
         effort = (
             self.config.compaction_reasoning_effort
@@ -249,6 +274,11 @@ class ModelClient:
                     **({"tools": tools, "parallel_tool_calls": False} if tools else {}),
                     **({"extra_body": extra} if extra else {}),
                     reasoning_effort=effort,
+                    **(
+                        {"max_tokens": self.config.request_output_ceiling}
+                        if self.config.request_output_ceiling
+                        else {}
+                    ),
                 ),
                 timeout=min(self.config.request_timeout, self.config.remaining),
             )

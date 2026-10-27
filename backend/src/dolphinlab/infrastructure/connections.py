@@ -18,8 +18,19 @@ def model_settings(connection=None):
             raise ValueError(
                 "Model/provider changed since run creation; restore its connection or create a new run"
             )
-        return {
+        result = {
             "base_url": settings.base_url,
             "model": settings.model,
             "api_key": decrypt_key(settings.encrypted_api_key),
         }
+        # A run keeps its admitted tariff and ceilings even if Settings is edited later.
+        pricing = (connection or {}).get("pricing", settings.pricing) or {}
+        if pricing.get("enforce_request_limits"):
+            from dolphinlab.infrastructure.usage import Pricing
+
+            limits = Pricing.model_validate(pricing)
+            result.update(
+                request_input_ceiling=limits.max_input_tokens,
+                request_output_ceiling=limits.max_output_tokens,
+            )
+        return result

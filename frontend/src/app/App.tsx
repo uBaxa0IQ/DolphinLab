@@ -114,6 +114,9 @@ export default function App() {
   const [chatError, setChatError] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const project = projects.find((p) => p.id === selectedId) || projects[0];
+  const analytical =
+    project?.latest_run?.goal_snapshot?.research_type === "analysis" ||
+    project?.latest_run?.publication?.kind === "analysis";
   const chatEnd = useRef<HTMLDivElement>(null);
   const uploadPicker = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -648,9 +651,9 @@ export default function App() {
                           <span className="result-check">
                             <Check size={13} />
                           </span>
-                          Лучший результат
+                          {analytical ? "Итог анализа" : "Лучший результат"}
                           <span className="metric-label">
-                            {project.metric ||
+                            {(analytical ? "Отчёт" : project.metric) ||
                               (project.latest_run?.publication
                                 ? "Артефакт"
                                 : "Метрика не выбрана")}
@@ -662,7 +665,9 @@ export default function App() {
                               ? project.latest_run.publication.page_id
                                 ? "Отчёт"
                                 : "Готов"
-                              : "—")}
+                              : analytical
+                                ? "Готовится"
+                                : "—")}
                           {project.score && project.id === "demo-retention" && (
                             <span>
                               <ArrowUpRight size={13} />
@@ -676,7 +681,9 @@ export default function App() {
                               ? "Статусы проверки — в отчёте"
                               : project.score || project.latest_run?.publication
                                 ? "Независимая проверка пройдена"
-                                : "Появится после первого эксперимента"}
+                                : analytical
+                                  ? "Расчёты и проверка — в отчёте"
+                                  : "Появится после первого эксперимента"}
                           </span>
                           {project.score && (
                             <button

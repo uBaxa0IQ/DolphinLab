@@ -32,7 +32,8 @@ class ModelClientFactory:
         client = ModelClient(config)
         original = client.complete
         with Session() as db:
-            credential = db.get(WorkspaceSettings, "local").encrypted_api_key
+            settings = db.get(WorkspaceSettings, "local")
+            credential, pricing = settings.encrypted_api_key, settings.pricing
         slot_id = run_id or concurrency_run_id
         if slot_id and slot_id not in self.run_slots:
             with Session() as db:
@@ -47,6 +48,7 @@ class ModelClientFactory:
                     or settings.encrypted_api_key != credential
                     or settings.base_url != config.base_url
                     or settings.model != config.model
+                    or settings.pricing != pricing
                 ):
                     raise APIUnavailable(
                         "Model connection changed or was removed; create a new run with the updated connection"

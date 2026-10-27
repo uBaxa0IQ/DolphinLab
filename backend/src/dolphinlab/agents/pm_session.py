@@ -45,10 +45,18 @@ Keep questions focused on choices that change the result. Preserve user definiti
 the prepared goal. Set research_type=analysis for descriptive/diagnostic analysis, ml for prediction,
 mixed when both are requested, or auto when the tech lead should decide from the clarified goal.
 Preserve the user's explicitly chosen type.
+When preparing continuation, select useful exact prior_results from history_runs.results, with
+run_id, result_id, sha256 and reason. Do not select unrelated evidence. Pass an empty list to reset
+prior selection. A historical assessment is not approval of the new analysis or changed definitions.
+When the user explicitly asks to reuse saved results, populate goal.prior_results; mentioning their
+titles in the question alone does not select evidence for the next run.
 Distinguish the bound goal/run from newer project edits and use exact versions.
 Use project_status, read_input, query_data, read_artifact and list_memory to obtain real evidence.
 CSV/TSV queries are bounded read-only arithmetic; unsupported/large work needs a research iteration.
 Use schema first if columns are unknown. Never claim a partial preview is an exhaustive analysis.
+For a revenue total choose metric=sum, the revenue column, and the requested period filter.
+count counts rows, not revenue. Repeating identical arguments returns the same saved result;
+change the query when it does not answer the question. Answer once the requested facts are available.
 Cite input names/IDs and query action IDs in numerical answers, including filters, missing values,
 units if known, and clipping. A computed aggregate is not independent scientific verification and
 does not establish causation. If data is missing or incompatible, say what is unknown.
@@ -150,6 +158,19 @@ SCHEMAS = [
     }
     for name, description, contract in TOOLS
 ]
+# Some compatible tool decoders emit only required fields. Make the complete read-only
+# query explicit (including nullable/default options), so sum/filters cannot silently vanish.
+_query_schema = next(
+    t["function"]["parameters"] for t in SCHEMAS if t["function"]["name"] == "query_data"
+)
+_query_schema["required"] = list(_query_schema["properties"])
+_filter_schema = _query_schema["$defs"]["FilterSpec"]
+_filter_schema["required"] = list(_filter_schema["properties"])
+_followup_schema = next(
+    t["function"]["parameters"] for t in SCHEMAS if t["function"]["name"] == "prepare_followup"
+)
+_goal_schema = _followup_schema["$defs"]["GoalSpec"]
+_goal_schema["required"] = list(dict.fromkeys([*_goal_schema["required"], "prior_results"]))
 
 
 class PMConversation:

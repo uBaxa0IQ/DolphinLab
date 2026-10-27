@@ -48,7 +48,31 @@ export default function RunPanel({
   const [selected, setSelected] = useState<ResearchRun | null>(null);
   const [files, setFiles] = useState<{ path: string; size: number }[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState<string | null>(null);
+  const [budgetRequestId, setBudgetRequestId] = useState("");
   const run = project.latest_run;
+  async function saveBudget(event: React.FormEvent) {
+    event.preventDefault();
+    const amount = Number(budgetDraft);
+    if (!run || busy || !Number.isFinite(amount) || amount <= 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.runBudget(
+        project.id,
+        run.id,
+        amount,
+        run.usage.budget_revision || 0,
+        budgetRequestId,
+      );
+      setBudgetDraft(null);
+      changed();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     let active = true;
     setError("");
@@ -165,7 +189,7 @@ export default function RunPanel({
               </button>
             </>
           )}
-          {run?.status === "paused" && (
+          {(run?.status === "paused" || run?.can_resume) && (
             <button
               className="button primary small"
               disabled={busy || !enabled}
@@ -226,7 +250,64 @@ export default function RunPanel({
           {!!run.usage.reserved_cost && (
             <span>Резерв: {run.usage.reserved_cost.toFixed(3)}</span>
           )}
+          <span>
+            Лимит:{" "}
+            {run.usage.budget_limit ??
+              run.policy.limits.api_budget ??
+              "не задан"}
+          </span>
+          {!project.archived &&
+            !project.demo &&
+            !["completed", "stopped"].includes(run.status) && (
+              <button
+                className="button secondary small"
+                disabled={busy}
+                onClick={() => {
+                  setBudgetDraft(
+                    String(
+                      run.usage.budget_limit ??
+                        run.policy.limits.api_budget ??
+                        "",
+                    ),
+                  );
+                  setBudgetRequestId(crypto.randomUUID());
+                }}
+              >
+                Изменить лимит
+              </button>
+            )}
         </div>
+      )}
+      {budgetDraft !== null && (
+        <form className="run-usage" onSubmit={saveBudget}>
+          <label>
+            Лимит API этого запуска, {run?.usage.currency}
+            <input
+              type="number"
+              min="0.001"
+              step="any"
+              required
+              aria-label="Лимит API этого запуска"
+              value={budgetDraft}
+              onChange={(e) => setBudgetDraft(e.target.value)}
+            />
+          </label>
+          <button
+            className="button primary small"
+            disabled={busy}
+            type="submit"
+          >
+            Сохранить лимит
+          </button>
+          <button
+            className="button secondary small"
+            disabled={busy}
+            type="button"
+            onClick={() => setBudgetDraft(null)}
+          >
+            Отмена
+          </button>
+        </form>
       )}
       {run?.error && <p className="form-error">{run.error}</p>}
       {error && (

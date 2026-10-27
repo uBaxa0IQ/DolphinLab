@@ -62,6 +62,11 @@ def run_view(run):
         "created": run.created.isoformat(),
         "updated": run.updated.isoformat(),
         "error": run.error,
+        "can_resume": run.status == "paused"
+        or (
+            run.status == "failed"
+            and "Project API budget has insufficient headroom" in (run.error or "")
+        ),
         "usage": run.usage,
         "publication": {
             "candidate_id": run.publication.get("candidate_id"),
@@ -117,7 +122,13 @@ def project_view(db, project):
         select(InputFile).where(InputFile.project_id == project.id).order_by(InputFile.created)
     ).all()
     events = db.scalars(
-        select(Event).where(Event.project_id == project.id).order_by(Event.seq.desc()).limit(30)
+        select(Event)
+        .where(
+            Event.project_id == project.id,
+            Event.kind.not_in(["runtime_update", "pm_usage", "conversation_usage"]),
+        )
+        .order_by(Event.seq.desc())
+        .limit(30)
     ).all()
     titles = {
         "project_created": "Проект создан",
@@ -127,6 +138,16 @@ def project_view(db, project):
         "policy_updated": "Обновлены настройки проекта",
         "goal_created": "Сохранена цель исследования",
         "iteration_created": "Создана итерация",
+        "run_created": "Исследование добавлено в очередь",
+        "run_started": "Исследование запущено",
+        "run_state": "Статус исследования изменился",
+        "run_control": "Команда управления исследованием",
+        "run_budget_updated": "Изменён лимит запуска",
+        "run_error": "Ошибка исследования",
+        "pm_reply": "PM ответил на сообщение",
+        "pm_error": "Ответ PM прерван",
+        "message_retry": "Повтор обработки сообщения",
+        "pm_action": "PM выполнил действие",
     }
     latest = db.scalar(
         select(Run).where(Run.project_id == project.id).order_by(Run.created.desc()).limit(1)

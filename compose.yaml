@@ -70,6 +70,7 @@ services:
       EXECUTOR_TOKEN: ${EXECUTOR_TOKEN:?Run scripts/bootstrap_platform.py}
       RUNS_ROOT: /data/runs
     volumes: [runs:/data/runs]
+    group_add: ["1000"]
     networks: [execution]
     read_only: true
     tmpfs: ["/tmp:size=1g,mode=1777"]

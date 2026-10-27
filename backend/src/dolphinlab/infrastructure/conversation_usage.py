@@ -44,7 +44,10 @@ def tracked_conversation(client, project_id, sessions=Session, *, message_id=Non
                     "Для бюджета общения настрой тариф и ёмкости запросов модели"
                 )
             pricing = Pricing.model_validate(settings.pricing)
-            reservation = pricing.reservation
+            reservation = pricing.reservation_for(
+                args[0] if args else kwargs.get("messages", []),
+                args[1] if len(args) > 1 else kwargs.get("tools"),
+            )
             account = db.get(ConversationAccount, project_id)
             if not account:
                 account = ConversationAccount(project_id=project_id, usage={})
@@ -86,14 +89,21 @@ def tracked_conversation(client, project_id, sessions=Session, *, message_id=Non
             )
             raise
         finally:
+            actual = pricing.reported_cost(reported)
             known = bool(
-                reported
-                and all(
-                    reported.get(key) is not None for key in ("prompt_tokens", "completion_tokens")
+                actual is not None
+                or (
+                    reported
+                    and all(
+                        reported.get(key) is not None
+                        for key in ("prompt_tokens", "completion_tokens")
+                    )
                 )
             )
             cost = (
-                (
+                actual
+                if actual is not None
+                else (
                     reported["prompt_tokens"] * pricing.input_per_million
                     + reported["completion_tokens"] * pricing.output_per_million
                 )

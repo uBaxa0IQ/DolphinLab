@@ -3,10 +3,19 @@
 import hashlib
 import json
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+
+
+class PriorResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    run_id: UUID
+    result_id: str = Field(min_length=1, max_length=120)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    reason: Text
 
 
 class GoalSpec(BaseModel):
@@ -21,6 +30,7 @@ class GoalSpec(BaseModel):
     definitions: dict[Text, Text] = Field(default_factory=dict, max_length=50)
     constraints: tuple[Text, ...] = Field(default=(), max_length=30)
     open_questions: tuple[Text, ...] = Field(default=(), max_length=30)
+    prior_results: tuple[PriorResult, ...] = Field(default=(), max_length=20)
 
     def task_text(self) -> str:
         parts = [self.question]

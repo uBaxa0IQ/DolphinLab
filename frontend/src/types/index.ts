@@ -160,6 +160,7 @@ export type ResearchRun = {
   created: string;
   updated: string;
   error?: string | null;
+  can_resume?: boolean;
   policy: ProjectPolicy;
   usage: {
     requests?: number;
@@ -169,6 +170,8 @@ export type ResearchRun = {
     unknown_requests?: number;
     prompt_tokens?: number;
     completion_tokens?: number;
+    budget_limit?: number;
+    budget_revision?: number;
   };
   publication?: {
     candidate_id?: string;
@@ -206,6 +209,12 @@ export type GoalSpec = {
   definitions: Record<string, string>;
   constraints: string[];
   open_questions: string[];
+  prior_results?: {
+    run_id: string;
+    result_id: string;
+    sha256: string;
+    reason: string;
+  }[];
 };
 export type GoalRevision = {
   id: string;

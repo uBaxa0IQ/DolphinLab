@@ -84,8 +84,13 @@ class PlatformRuntime(Runtime):
         state["allowed_stack"] = self.capabilities
         state["project_policy"] = self.policy
         state["api_budget"] = {
-            "limit": self.policy["limits"].get("api_budget"),
+            "limit": self.current_usage.get(
+                "budget_limit", self.policy["limits"].get("api_budget")
+            ),
             **self.current_usage,
+            "source": "Explicit user budget amendment; frozen policy is retained for audit"
+            if "budget_limit" in self.current_usage
+            else "Frozen run policy",
         }
         state["external_control"] = {
             "pause_requested": self.pause_requested,
@@ -279,7 +284,9 @@ class PlatformRuntime(Runtime):
             run = db.get(Run, self.platform_run_id)
             action = run.requested_action
             self.current_usage = copy.deepcopy(run.usage or {})
-            budget = self.policy["limits"].get("api_budget")
+            from dolphinlab.infrastructure.usage import run_budget
+
+            budget = run_budget(run)
             if (
                 budget
                 and not self.budget_warned

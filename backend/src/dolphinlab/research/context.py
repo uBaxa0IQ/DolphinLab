@@ -384,7 +384,8 @@ async def prepare_context(agent, state, client, config, store, tools):
 
 def build_context(agent, state):
     stable = "\nORIGINAL TASK (verbatim):\n" + state.get("original_task", "")
-    stable += "\nALLOWED STACK:\n" + state.get("allowed_stack", "")
+    stack = state.get("allowed_stack", "")
+    stable += "\nALLOWED STACK:\n" + (stack if isinstance(stack, str) else dumps(stack))
     dynamic = {
         k: v for k, v in state.items() if k not in ("original_task", "allowed_stack", "role_prompt")
     }

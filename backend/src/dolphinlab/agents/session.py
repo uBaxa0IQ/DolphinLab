@@ -43,13 +43,57 @@ class ResearchSession:
         if task.exists():
             return task
         task_dir.mkdir(parents=True, exist_ok=True)
+        from dolphinlab.domain.results import PAYLOADS, VerificationData
+
+        schemas = task_dir / "result-schemas.json"
+        schemas.write_text(
+            json.dumps(
+                {
+                    **{name: contract.model_json_schema() for name, contract in PAYLOADS.items()},
+                    "verification": VerificationData.model_json_schema(),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        schemas.chmod(0o444)
         context_path = task_dir / "project-context.json"
-        project_context = run.project_context or {}
+        project_context = copy.deepcopy(run.project_context or {})
+        for index, selected in enumerate(project_context.get("selected_results", [])):
+            origin = Path(selected["artifact_path"])
+            if not origin.is_file() or origin.stat().st_size > 1024 * 1024:
+                raise ValueError("Selected historical result is missing or oversized")
+            raw = origin.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != selected["sha256"]:
+                raise ValueError("Selected historical result changed after run creation")
+            destination = task_dir / f"prior-result-{index + 1}.json"
+            destination.write_bytes(raw)
+            destination.chmod(0o444)
+            selected["origin_path"] = selected["artifact_path"]
+            selected["artifact_path"] = str(destination)
         context_path.write_text(
             json.dumps(project_context, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         context_index = {
             "full_snapshot": str(context_path),
+            "selected_results": [
+                {
+                    key: item.get(key)
+                    for key in (
+                        "run_id",
+                        "id",
+                        "kind",
+                        "title",
+                        "sha256",
+                        "status",
+                        "reason",
+                        "applicable_to_inputs",
+                        "artifact_path",
+                        "notice",
+                    )
+                }
+                for item in project_context.get("selected_results", [])
+            ],
             "memory": [
                 {
                     **{
@@ -112,7 +156,14 @@ class ResearchSession:
             "\n\n".join(descriptions)
             + "\n\n# Provided immutable input files\n"
             + json.dumps(files, ensure_ascii=False, indent=2)
-            + "\n\nUse these provided paths rather than historical paths in the task text. Produce candidate submission.csv in JOB_DIR and register it for independent review. The runtime publishes the approved file beside task.md; do not overwrite it from experiment code.\n"
+            + "\n\nUse these provided paths rather than historical paths in the task text. "
+            "Choose delivery from the frozen goal: analysis requires registered results and an "
+            "independently checked report; ML requires a candidate submission.csv in JOB_DIR "
+            "registered for independent review; mixed requires both. The runtime publishes "
+            "approved deliveries. Do not overwrite published files from experiment code.\n"
+            + "\nExact analytical JSON schemas (read before creating payloads): "
+            + str(schemas)
+            + "\n"
             + "\n\n# Saved project context (historical claims retain their status)\n"
             + json.dumps(context_index, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -201,6 +252,9 @@ class ResearchSession:
             config.reference_roots = tuple(
                 (RUNS_ROOT / entry["id"]).resolve()
                 for entry in (run.project_context or {}).get("previous_runs", [])
+            ) + tuple(
+                (RUNS_ROOT / entry["run_id"]).resolve()
+                for entry in (run.project_context or {}).get("selected_results", [])
             )
             client = self.clients.create(config, run.id)
             async with httpx.AsyncClient(timeout=20) as http:

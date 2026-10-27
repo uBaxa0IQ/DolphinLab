@@ -8,6 +8,35 @@ from dolphinlab.domain.research import GoalSpec, request_fingerprint
 
 
 class ResearchContractsTest(unittest.TestCase):
+    def test_nested_goal_json_string_is_validated_as_the_same_structured_goal(self):
+        import json
+
+        from dolphinlab.domain.conversation import FollowupSpec
+
+        goal = {"question": "Use prior evidence", "prior_results": []}
+        self.assertEqual(FollowupSpec(goal=goal), FollowupSpec(goal=json.dumps(goal)))
+        with self.assertRaises(ValidationError):
+            FollowupSpec(goal=json.dumps({**goal, "unrecognized_permission": True}))
+        with self.assertRaises(ValidationError):
+            FollowupSpec(goal="[]")
+
+    def test_report_coverage_uses_explicit_unique_ids_without_confusing_c1_with_c10(self):
+        from dolphinlab.research.results import uncovered_criteria
+
+        criteria = ["C1: Monthly totals", "C2: Growth"]
+        self.assertEqual(
+            uncovered_criteria(criteria, [{"name": "C1: Recomputed from CSV"}]), [criteria[1]]
+        )
+        self.assertEqual(uncovered_criteria(criteria, [{"name": "C10: Another check"}]), criteria)
+        self.assertEqual(
+            uncovered_criteria(
+                criteria, [{"name": "C1: Recomputed"}, {"name": "C2: Denominator checked"}]
+            ),
+            [],
+        )
+        ambiguous = ["C1: Monthly", "C1: Returns", "Unkeyed requirement"]
+        self.assertEqual(uncovered_criteria(ambiguous, [{"name": "C1: Monthly"}]), ambiguous[1:])
+
     def test_empty_question_is_rejected(self):
         for question in ("", "   ", "\n"):
             with self.subTest(question=question), self.assertRaises(ValidationError):

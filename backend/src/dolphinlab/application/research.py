@@ -33,6 +33,9 @@ def latest_iteration(db, project_id):
 
 
 def append_goal(db, project, goal: GoalSpec, *, origin="user", request_id=None, request_hash=None):
+    from .result_context import validate_prior_results
+
+    validate_prior_results(db, project.id, goal.prior_results)
     previous = latest_goal(db, project.id)
     record = GoalRevision(
         id=str(uuid4()),

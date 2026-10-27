@@ -6,7 +6,7 @@ import json
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import test_research_storage as storage
@@ -203,6 +203,91 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(self.count(Run), 0)
         self.assertEqual(self.count(ResearchIteration), 0)
         self.assertEqual(self.count(GoalRevision), 1)
+
+    def test_compatible_query_schema_cannot_omit_sum_or_period_options(self):
+        from dolphinlab.agents.pm_session import SCHEMAS
+
+        schema = next(
+            s["function"]["parameters"] for s in SCHEMAS if s["function"]["name"] == "query_data"
+        )
+        self.assertTrue({"metric", "column", "filters"}.issubset(schema["required"]))
+        self.assertIn("value", schema["$defs"]["FilterSpec"]["required"])
+
+    def test_confirmed_provider_currency_settles_pm_and_research_separately(self):
+        from dolphinlab.infrastructure.usage import tracked
+
+        self.configure()
+        with Session.begin() as db:
+            settings = db.get(WorkspaceSettings, "local")
+            settings.pricing = {**settings.pricing, "provider_cost_currency": "TEST"}
+        pm = SimpleNamespace(complete=AsyncMock(return_value=({"content": "OK"}, {"cost": 0.03})))
+        asyncio.run(tracked_conversation(pm, self.pid).complete([], []))
+        run = self.start()
+        research = SimpleNamespace(
+            complete=AsyncMock(return_value=({"content": "OK"}, {"cost": 0.04}))
+        )
+        asyncio.run(tracked(research, run["id"]).complete([], []))
+        with Session() as db:
+            pm_usage = db.get(ConversationAccount, self.pid).usage
+            research_usage = db.get(Run, run["id"]).usage
+            self.assertAlmostEqual(pm_usage["accounted_cost"], 0.03)
+            self.assertAlmostEqual(research_usage["accounted_cost"], 0.04)
+            self.assertEqual(pm_usage["pending_requests"], 0)
+            self.assertEqual(research_usage["pending_requests"], 0)
+
+    def test_different_request_reservations_settle_without_releasing_another_call(self):
+        from dolphinlab.infrastructure.usage import Pricing, tracked
+
+        self.configure()
+        run = self.start()
+        pricing = Pricing(
+            currency="TEST",
+            input_per_million=1000,
+            output_per_million=1000,
+            max_input_tokens=10000,
+            max_output_tokens=100,
+            enforce_request_limits=True,
+            provider_cost_currency="TEST",
+        )
+        with Session.begin() as db:
+            row = db.get(Run, run["id"])
+            row.connection = {**row.connection, "pricing": pricing.model_dump()}
+            row.policy = {**row.policy, "limits": {**row.policy["limits"], "api_budget": 0.01}}
+            row.usage = {"budget_limit": 12, "budget_revision": 1}
+
+        async def scenario():
+            entered = [asyncio.Event(), asyncio.Event()]
+            release = [asyncio.Event(), asyncio.Event()]
+
+            async def original(messages, tools=None):
+                index = int(messages[0]["content"][0])
+                entered[index].set()
+                await release[index].wait()
+                return {"content": "OK"}, {"cost": 0.02}
+
+            client = tracked(SimpleNamespace(complete=original), run["id"])
+            messages = [
+                [{"role": "user", "content": "0"}],
+                [{"role": "user", "content": "1" + "x" * 1000}],
+            ]
+            tasks = [asyncio.create_task(client.complete(m)) for m in messages]
+            await asyncio.wait_for(asyncio.gather(*(e.wait() for e in entered)), 3)
+            with Session() as db:
+                usage = db.get(Run, run["id"]).usage
+                self.assertEqual(usage["pending_requests"], 2)
+                self.assertAlmostEqual(
+                    usage["reserved_cost"], sum(pricing.reservation_for(m) for m in messages)
+                )
+            release[0].set()
+            await tasks[0]
+            with Session() as db:
+                usage = db.get(Run, run["id"]).usage
+                self.assertEqual(usage["pending_requests"], 1)
+                self.assertAlmostEqual(usage["reserved_cost"], pricing.reservation_for(messages[1]))
+            release[1].set()
+            await tasks[1]
+
+        asyncio.run(scenario())
 
     def test_auto_is_default_and_retry_keeps_original_request_after_routing(self):
         body = CreateMessage(content="Какова сумма?", client_id=uuid4())

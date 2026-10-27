@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,7 +9,7 @@ from sqlalchemy import select
 
 from dolphinlab.api.dependencies import execution_enabled, require_project
 from dolphinlab.api.presenters import run_view
-from dolphinlab.api.schemas import ControlRun, StartRun
+from dolphinlab.api.schemas import ControlRun, StartRun, UpdateRunBudget
 from dolphinlab.domain.policy import ProjectPolicy
 from dolphinlab.domain.research import GoalSpec, request_fingerprint
 from dolphinlab.infrastructure.database import (
@@ -19,6 +20,7 @@ from dolphinlab.infrastructure.database import (
     ProjectPolicyRecord,
     ResearchEvent,
     ResearchIteration,
+    ResearchObject,
     Run,
     WorkspaceSettings,
     now,
@@ -31,6 +33,70 @@ from .research import append_iteration, latest_goal, latest_iteration, replay
 
 
 class RunService(Service):
+    def update_budget(self, project_id, run_id, body: UpdateRunBudget):
+        with self.sessions.begin() as db:
+            require_project(db, project_id)
+            db.scalar(
+                select(Project).where(Project.id == project_id).with_for_update(key_share=True)
+            )
+            run = db.scalar(
+                select(Run).where(Run.id == run_id, Run.project_id == project_id).with_for_update()
+            )
+            if not run:
+                raise HTTPException(404, "Запуск не найден")
+            if not run.connection.get("pricing"):
+                raise HTTPException(409, "Для денежного лимита нужен сохранённый тариф запуска")
+            from dolphinlab.infrastructure.usage import Pricing
+
+            Pricing.model_validate(run.connection["pricing"])
+            usage = dict(run.usage or {})
+            payload_hash = request_fingerprint(body)
+            if usage.get("budget_request_id") == str(body.client_id):
+                if usage.get("budget_request_hash") != payload_hash:
+                    raise HTTPException(409, "ID операции уже использован для другого лимита")
+                return run_view(run)
+            if body.expected_revision != usage.get("budget_revision", 0):
+                raise HTTPException(409, "Лимит уже изменился. Обнови запуск")
+            if run.status in {"completed", "stopped"}:
+                raise HTTPException(409, "Завершённый запуск не требует нового бюджета")
+            meta = db.scalar(
+                select(ResearchObject.data).where(
+                    ResearchObject.run_id == run.id,
+                    ResearchObject.kind == "run",
+                    ResearchObject.object_id == "current",
+                )
+            )
+            if run.status == "failed" and meta and meta.get("deadline_wall", 0) <= time.time():
+                raise HTTPException(409, "Срок запуска истёк. Подготовь следующую итерацию")
+            if body.api_budget < usage.get("accounted_cost", 0) + usage.get("reserved_cost", 0):
+                raise HTTPException(
+                    409, "Лимит не может быть меньше учтённых расходов и активных резервов"
+                )
+            from dolphinlab.infrastructure.usage import run_budget
+
+            previous = run_budget(run)
+            usage.update(
+                budget_limit=body.api_budget,
+                budget_revision=body.expected_revision + 1,
+                budget_request_id=str(body.client_id),
+                budget_request_hash=payload_hash,
+            )
+            run.usage, run.updated = usage, now()
+            db.add(
+                Event(
+                    project_id=project_id,
+                    kind="run_budget_updated",
+                    payload={
+                        "run_id": run.id,
+                        "previous_limit": previous,
+                        "limit": body.api_budget,
+                        "revision": usage["budget_revision"],
+                        "name": str(body.api_budget),
+                    },
+                )
+            )
+            return run_view(run)
+
     def start_run(self, project_id: str, body: StartRun | None = None):
         body = body or StartRun()
         with self.sessions.begin() as db:
@@ -186,6 +252,11 @@ class RunService(Service):
 
     def control_run(self, project_id: str, run_id: str, body: ControlRun):
         with self.sessions.begin() as db:
+            require_project(db, project_id)
+            # Serialize start/resume without blocking FK key-share locks on runtime events.
+            db.scalar(
+                select(Project).where(Project.id == project_id).with_for_update(key_share=True)
+            )
             run = db.scalar(
                 select(Run).where(Run.id == run_id, Run.project_id == project_id).with_for_update()
             )
@@ -193,7 +264,7 @@ class RunService(Service):
                 raise HTTPException(404, "Запуск не найден")
             transitions = {
                 "pause": ({"queued", "running", "recovering"}, "pausing"),
-                "resume": ({"paused"}, "queued"),
+                "resume": ({"paused", "failed"}, "queued"),
                 "finish": ({"running", "recovering"}, "finalizing"),
                 "stop": (
                     {
@@ -215,6 +286,44 @@ class RunService(Service):
                 raise HTTPException(409, "Действие недоступно в текущем состоянии")
             if body.action == "resume" and not execution_enabled():
                 raise HTTPException(409, "Вызовы модели отключены")
+            if body.action == "resume":
+                if run.status == "failed":
+                    latest_error = db.scalar(
+                        select(ResearchEvent)
+                        .where(
+                            ResearchEvent.run_id == run.id,
+                            ResearchEvent.kind == "model_error",
+                        )
+                        .order_by(ResearchEvent.seq.desc())
+                        .limit(1)
+                    )
+                    if not latest_error or not latest_error.data.get("detail", "").startswith(
+                        "Project API budget has insufficient headroom"
+                    ):
+                        raise HTTPException(409, "Эта ошибка требует нового запуска")
+                    meta = db.scalar(
+                        select(ResearchObject.data).where(
+                            ResearchObject.run_id == run.id,
+                            ResearchObject.kind == "run",
+                            ResearchObject.object_id == "current",
+                        )
+                    )
+                    if meta and meta.get("deadline_wall", 0) <= time.time():
+                        raise HTTPException(
+                            409,
+                            "Срок этого запуска истёк. Подготовь продолжение с сохранёнными результатами",
+                        )
+                if db.scalar(
+                    select(Run.id)
+                    .where(
+                        Run.project_id == project_id,
+                        Run.id != run.id,
+                        Run.status.not_in(["completed", "failed", "stopped"]),
+                    )
+                    .limit(1)
+                ):
+                    raise HTTPException(409, "У проекта уже есть другой активный запуск")
+                run.error = None
             previous = run.status
             run.requested_action = "run" if body.action == "resume" else body.action
             run.status = next_state

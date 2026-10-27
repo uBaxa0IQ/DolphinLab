@@ -31,6 +31,8 @@ class Config:
     request_timeout: float = 300
     shutdown_seconds: float = 15
     request_extra: dict = field(default_factory=dict)
+    request_input_ceiling: int | None = None
+    request_output_ceiling: int | None = None
     context_history_bytes: int = 128000
     context_compact_turns: int = 16
     context_recent_exchanges: int = 6
@@ -81,6 +83,11 @@ class Config:
             raise ValueError("Context window must be a confirmed positive model capacity")
         if self.generation_reserve is not None and self.generation_reserve <= 0:
             raise ValueError("Generation reserve must be positive")
+        if any(
+            value is not None and value <= 0
+            for value in (self.request_input_ceiling, self.request_output_ceiling)
+        ):
+            raise ValueError("Request ceilings must be positive")
         if (
             self.context_window
             and self.generation_reserve
