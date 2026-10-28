@@ -3,16 +3,15 @@ import {
   ArrowUpRight,
   CheckCheck,
   ChevronDown,
-  Command,
   Loader2,
   MoreHorizontal,
   Paperclip,
-  Plus,
   Sparkles,
   X,
 } from "lucide-react";
+import Markdown from "../../components/Markdown";
 import type { FormEvent, Ref } from "react";
-import type { ChatIntent, ChatMessage, PMEvidence, Project } from "../../types";
+import type { ChatMessage, PMEvidence, Project } from "../../types";
 
 type Props = {
   project: Project;
@@ -22,16 +21,12 @@ type Props = {
   sending: boolean;
   messages: ChatMessage[];
   draft: string;
-  directive: boolean;
-  intent: ChatIntent;
-  onIntent: (value: ChatIntent) => void;
   onHistory: () => void;
   error: string;
   chatEnd: Ref<HTMLDivElement>;
   onClose: () => void;
   onNotice: (message: string) => void;
   onDraft: (value: string) => void;
-  onDirective: (value: boolean) => void;
   onSend: (event?: FormEvent, suggested?: string) => Promise<void>;
   onRetry: (messageId: string) => void;
   onFiles: () => void;
@@ -45,16 +40,12 @@ export default function ChatPanel({
   sending,
   messages,
   draft,
-  directive,
-  intent,
-  onIntent,
   onHistory,
   error,
   chatEnd,
   onClose,
   onNotice,
   onDraft,
-  onDirective,
   onSend,
   onRetry,
   onFiles,
@@ -70,13 +61,13 @@ export default function ChatPanel({
           <i />
         </span>
         <div>
-          <h2>Project manager</h2>
-          <span>{project.demo ? "На связи" : "История проекта"}</span>
+          <h2>Помощник проекта</h2>
+          <span>{project.demo ? "На связи" : "Обсудим исследование"}</span>
         </div>
         <button
           className="icon-button"
-          title="О project manager"
-          aria-label="О project manager"
+          title="О помощнике"
+          aria-label="О помощнике"
           onClick={() =>
             onNotice(
               project.demo
@@ -126,7 +117,7 @@ export default function ChatPanel({
                 <span className="mini-pm">
                   <Sparkles size={12} />
                 </span>
-                Project manager<span>{message.time}</span>
+                Помощник проекта<span>{message.time}</span>
               </div>
             )}
             {message.directive && (
@@ -135,23 +126,12 @@ export default function ChatPanel({
                 Поручение техлиду
               </span>
             )}
-            <div className="message-body">{message.content}</div>
-            {message.role === "user" &&
-              message.requested_intent === "auto" &&
-              message.intent &&
-              message.intent !== "auto" && (
-                <div className="pending-message" title={message.intent_reason}>
-                  PM определил:{" "}
-                  {
-                    {
-                      question: "вопрос по данным",
-                      instruction: "поручение",
-                      followup: "следующая итерация",
-                      clarification: "нужно уточнение",
-                    }[message.intent]
-                  }
-                </div>
-              )}
+            <div className="message-body">
+              <Markdown
+                text={message.content}
+                technical={message.role === "assistant"}
+              />
+            </div>
             {message.role === "user" && (
               <div className="message-time">
                 {message.time}
@@ -161,16 +141,18 @@ export default function ChatPanel({
             {message.status === "pending" && (
               <div className="pending-message">
                 {executionEnabled
-                  ? "Сохранено · ожидает ответа PM"
+                  ? "Сохранено · ожидает ответа помощника"
                   : "Сохранено · вызовы модели отключены"}
               </div>
             )}
             {message.status === "processing" && (
-              <div className="pending-message">PM готовит ответ…</div>
+              <div className="pending-message">Помощник готовит ответ…</div>
             )}
             {message.status === "failed" && (
               <div className="failed-message">
-                <span>{message.error || "Не удалось получить ответ PM"}</span>
+                <span>
+                  {message.error || "Не удалось получить ответ помощника"}
+                </span>
                 <button onClick={() => onRetry(message.id)}>Повторить</button>
               </div>
             )}
@@ -209,86 +191,17 @@ export default function ChatPanel({
               : `Учтено за общение: ${(project.conversation_usage?.accounted_cost || 0).toLocaleString("ru-RU", { maximumFractionDigits: 4 })} из ${project.conversation_budget} ${project.conversation_usage?.currency || "в валюте тарифа"}`}
           </p>
         )}
-        {!project.demo && (
-          <label className="chat-intent-label">
-            Режим сообщения
-            <select
-              value={intent}
-              onChange={(event) => onIntent(event.target.value as ChatIntent)}
-              aria-label="Режим сообщения"
-              disabled={sending}
-            >
-              <option value="auto">Автоматически</option>
-              <option value="question">Вопрос по данным</option>
-              <option value="instruction">Поручение текущему запуску</option>
-              <option value="followup">Следующая итерация</option>
-            </select>
-            <small>
-              {intent === "auto"
-                ? "PM определит намерение по диалогу и уточнит, если нужно. Исследование запускается отдельно."
-                : intent === "question"
-                  ? "Ответ или небольшой расчёт без запуска исследования."
-                  : intent === "followup"
-                    ? "PM уточнит цель и подготовит итерацию. Запуск — отдельно."
-                    : "Поручение адресуется текущему запуску и не переносится в следующий."}
-            </small>
-          </label>
-        )}
-        {project.demo && (
-          <div className="suggestions">
-            <button
-              onClick={() => void onSend(undefined, "Какой сейчас прогресс?")}
-              disabled={sending}
-            >
-              Какой прогресс?
-              <ArrowUpRight size={12} />
-            </button>
-            <button
-              onClick={() => {
-                onDirective(true);
-                document.getElementById("chat-input")?.focus();
-              }}
-            >
-              Дать поручение
-              <Plus size={12} />
-            </button>
-          </div>
-        )}
         {error && (
           <p className="form-error" role="alert">
             {error}
           </p>
         )}
-        <form
-          className={`chat-compose ${directive ? "directive" : ""}`}
-          onSubmit={onSend}
-        >
-          {directive && (
-            <div className="compose-mode">
-              <ArrowUpRight size={12} />
-              Поручение техлиду
-              <button
-                type="button"
-                onClick={() => onDirective(false)}
-                aria-label="Обычное сообщение"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          )}
+        <form className="chat-compose" onSubmit={onSend}>
           <textarea
             id="chat-input"
             value={draft}
             onChange={(e) => onDraft(e.target.value)}
-            placeholder={
-              directive
-                ? "Что нужно изменить в работе?"
-                : intent === "followup"
-                  ? "Что проверить в следующей итерации?"
-                  : intent === "auto"
-                    ? "Задай вопрос или расскажи, что хочешь проверить…"
-                    : "Задай вопрос по данным…"
-            }
+            placeholder="Спросите о данных или предложите, что исследовать…"
             rows={2}
             maxLength={20000}
             onKeyDown={(e) => {
@@ -312,15 +225,6 @@ export default function ChatPanel({
               <Paperclip size={16} />
             </button>
             <button
-              type="button"
-              className={`compose-directive ${directive ? "active" : ""}`}
-              onClick={() => onDirective(!directive)}
-              title="Передать поручение техлиду"
-            >
-              <Command size={13} />
-              Поручение
-            </button>
-            <button
               className="onSend-button"
               type="submit"
               aria-label="Отправить сообщение"
@@ -338,7 +242,7 @@ export default function ChatPanel({
           {project.demo
             ? "Деморежим · без вызовов модели"
             : executionEnabled
-              ? "Вопросы и расчёты · отдельный бюджет PM"
+              ? "Помощник сам определит, как помочь"
               : "Сообщения сохраняются · вызовы модели отключены"}
         </div>
       </div>

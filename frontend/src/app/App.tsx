@@ -1,25 +1,14 @@
 import {
-  Activity,
-  ArrowDownToLine,
-  ArrowRight,
   ArrowUpRight,
-  Check,
-  ChevronDown,
   ChevronRight,
   Clock3,
-  File,
-  FileText,
-  FlaskConical,
   Folder,
   LayoutGrid,
-  Loader2,
   MessageSquare,
   MoreHorizontal,
   Plus,
   Search,
   Settings2,
-  Sparkles,
-  Upload,
   Users,
   X,
   Zap,
@@ -37,15 +26,13 @@ import ExperimentRows from "../features/research/ExperimentRows";
 import RunPanel, { statusLabels } from "../features/research/RunPanel";
 import ResearchHistory from "../features/research/ResearchHistory";
 import TeamCard from "../features/research/TeamCard";
-import DocumentsPanel from "../features/research/DocumentsPanel";
-import ResearchPages, {
-  ProjectPageOverview,
-} from "../features/research/ResearchPages";
+import Materials from "../features/research/Materials";
+import { shortText } from "../lib/presentation";
+import ResearchPages from "../features/research/ResearchWorkspace";
 import TeamStaffing from "../features/research/TeamStaffing";
 import ProjectSettingsPanel from "../features/settings/ProjectSettingsPanel";
 import SettingsPanel from "../features/settings/SettingsPanel";
 import { api } from "../lib/api";
-import { size } from "../lib/format";
 import type {
   ChatMessage,
   ChatIntent,
@@ -57,12 +44,9 @@ import type {
 
 type Tab = "overview" | "teams" | "experiments" | "files" | "runs" | "pages";
 const tabs: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Обзор" },
-  { id: "teams", label: "Команды" },
-  { id: "experiments", label: "Эксперименты" },
-  { id: "files", label: "Файлы" },
-  { id: "pages", label: "Страницы" },
-  { id: "runs", label: "История" },
+  { id: "overview", label: "Результаты" },
+  { id: "files", label: "Материалы" },
+  { id: "runs", label: "Исследование" },
 ];
 const clock = () =>
   new Date().toLocaleTimeString("ru-RU", {
@@ -95,8 +79,17 @@ export default function App() {
     key_configured: false,
     execution_enabled: false,
   });
-  const [selectedId, setSelectedId] = useState(demoProjects[0].id);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [selectedId, setSelectedId] = useState(
+    () => new URLSearchParams(location.search).get("project") || "",
+  );
+  const [tab, setTab] = useState<Tab>(() => {
+    const v = new URLSearchParams(location.search).get("view");
+    return ["overview", "files", "runs", "teams", "experiments"].includes(
+      v || "",
+    )
+      ? (v as Tab)
+      : "overview";
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -107,29 +100,20 @@ export default function App() {
   const [demoChats, setDemoChats] = useState(readDemoChat);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [chatIntent, setChatIntent] = useState<ChatIntent>("auto");
-  const directive = chatIntent === "instruction";
-  function setDirective(value: boolean) {
-    setChatIntent(value ? "instruction" : "auto");
-  }
+  const chatIntent: ChatIntent = "auto";
+  const directive = false;
   const [sending, setSending] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [chatMobile, setChatMobile] = useState(false);
   const [chatError, setChatError] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const project = projects.find((p) => p.id === selectedId) || projects[0];
-  const analytical =
-    project?.latest_run?.goal_snapshot?.research_type === "analysis" ||
-    project?.latest_run?.publication?.kind === "analysis";
   const chatEnd = useRef<HTMLDivElement>(null);
-  const uploadPicker = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const selectedRef = useRef(selectedId);
   useEffect(() => {
     selectedRef.current = selectedId;
     setDraft("");
     setChatError("");
-    setDirective(false);
   }, [selectedId]);
   useEffect(() => {
     api
@@ -138,7 +122,14 @@ export default function App() {
       .catch(() => {});
     api
       .projects()
-      .then((actual) => setProjects([...demoProjects, ...actual]))
+      .then((actual) => {
+        setProjects([...actual, ...demoProjects]);
+        setSelectedId((id) =>
+          [...actual, ...demoProjects].some((p) => p.id === id)
+            ? id
+            : actual.find((p) => !p.archived)?.id || demoProjects[0].id,
+        );
+      })
       .catch(() => {
         /* Demo remains available without the local API. */
       });
@@ -244,6 +235,10 @@ export default function App() {
   }, []);
 
   function select(id: string) {
+    const params = new URLSearchParams(location.search);
+    params.delete("page");
+    params.delete("publication");
+    history.replaceState(null, "", `${location.pathname}?${params}`);
     setDirectory(false);
     setSelectedId(id);
     setTab("overview");
@@ -327,48 +322,13 @@ export default function App() {
       setSending(false);
     }
   }
-  async function upload(files: FileList | null) {
-    if (!files?.length) return;
-    if (project.demo) {
-      setNotice(
-        "Это демонстрационный проект. Создай свой, чтобы загрузить данные.",
-      );
-      return;
-    }
-    setUploading(true);
-    const id = project.id;
-    for (const file of Array.from(files)) {
-      try {
-        const saved = await api.upload(id, file);
-        setProjects((before) =>
-          before.map((p) =>
-            p.id === id ? { ...p, files: [...p.files, saved] } : p,
-          ),
-        );
-      } catch (e) {
-        setNotice((e as Error).message);
-      }
-    }
-    setUploading(false);
-  }
-  function downloadDemo() {
-    const text =
-      "# Демоотчёт DolphinLab\n\nВымышленные данные для просмотра дизайна.\nПроект: " +
-      project.name +
-      "\nМетрика: " +
-      project.metric +
-      "\nРезультат: " +
-      project.score +
-      "\n\nЭто не результат реального ML-эксперимента.\n";
-    const url = URL.createObjectURL(
-      new Blob([text], { type: "text/markdown;charset=utf-8" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "demo-report.md";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  useEffect(() => {
+    if (!selectedId) return;
+    const params = new URLSearchParams(location.search);
+    params.set("project", selectedId);
+    params.set("view", tab);
+    history.replaceState(null, "", `${location.pathname}?${params}`);
+  }, [selectedId, tab]);
 
   return (
     <div className="workspace">
@@ -386,138 +346,97 @@ export default function App() {
           </span>
           DolphinLab<span className="brand-period">.</span>
         </a>
-        <button className="workspace-switch" onClick={() => setDirectory(true)}>
-          <span className="workspace-avatar">
-            {settings.display_name[0]?.toUpperCase() || "Я"}
-          </span>
-          <span>
-            Личное пространство<small>{settings.display_name}</small>
-          </span>
-          <ChevronDown size={14} />
-        </button>
         <button className="search-button" onClick={() => setSearchOpen(true)}>
           <Search size={16} />
           <span>Найти проект</span>
-          <kbd>⌘ K</kbd>
+          <kbd>Ctrl K</kbd>
         </button>
         <button
-          aria-label="Все проекты"
           className={`all-projects-link ${directory ? "active" : ""}`}
-          onClick={() => {
-            setDirectory(true);
-            setEventsOpen(false);
-          }}
+          onClick={() => setDirectory(true)}
         >
-          <LayoutGrid size={15} />
-          Все проекты<span>{projects.length}</span>
+          <LayoutGrid size={16} />
+          Все проекты<span>{projects.filter((p) => !p.demo).length}</span>
         </button>
         <div className="sidebar-section-title">
-          <span>ПРОЕКТЫ</span>
+          <span>МОИ ПРОЕКТЫ</span>
           <button
             className="icon-button"
-            onClick={() => setCreateOpen(true)}
             aria-label="Новый проект"
+            onClick={() => setCreateOpen(true)}
           >
-            <Plus size={16} />
+            <Plus size={17} />
           </button>
         </div>
         <nav className="project-nav" aria-label="Проекты">
           {projects
-            .filter((p) => !p.archived)
+            .filter((p) => !p.archived && !p.demo)
             .map((p) => (
               <button
                 key={p.id}
-                className={`project-nav-item ${!directory && project.id === p.id ? "active" : ""}`}
+                title={p.name}
+                className={`project-nav-item ${!directory && p.id === project.id ? "active" : ""}`}
                 onClick={() => select(p.id)}
               >
-                <span className={`nav-project-dot ${p.status}`} />
+                <span className={`tiny-dot ${p.status}`} />
                 <span>{p.name}</span>
-                {p.demo && <span className="nav-demo">Демо</span>}
+              </button>
+            ))}
+          {!projects.some((p) => !p.demo && !p.archived) && (
+            <p className="sidebar-empty">Здесь будут ваши исследования</p>
+          )}
+          <div className="sidebar-section-title demo-label">ПРИМЕРЫ</div>
+          {projects
+            .filter((p) => p.demo)
+            .map((p) => (
+              <button
+                key={p.id}
+                className={`project-nav-item ${!directory && p.id === project.id ? "active" : ""}`}
+                onClick={() => select(p.id)}
+              >
+                <Folder size={14} />
+                <span>{p.name}</span>
               </button>
             ))}
         </nav>
         <button
-          className="new-project-button"
-          onClick={() => setCreateOpen(true)}
+          className="profile-button"
+          onClick={() => setSettingsOpen(true)}
         >
-          <Plus size={16} />
-          Новый проект
+          <span className="workspace-avatar">
+            {settings.display_name[0] || "Я"}
+          </span>
+          <span>
+            {settings.display_name}
+            <small>Настройки пространства</small>
+          </span>
+          <Settings2 size={15} />
         </button>
-        <div className="sidebar-bottom">
-          <div className="demo-note">
-            <span className="demo-note-icon">
-              <Sparkles size={17} />
-            </span>
-            <strong>Пространство для идей</strong>
-            <p>
-              От первого вопроса
-              <br />
-              до проверенного результата.
-            </p>
-          </div>
-          <button
-            className="profile-button"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <span className="profile-avatar">
-              {settings.display_name[0]?.toUpperCase() || "Я"}
-            </span>
-            <span>
-              {settings.display_name}
-              <small>Настройки и API</small>
-            </span>
-            <Settings2 size={16} />
-          </button>
-        </div>
       </aside>
-      <div className="project-area">
+      <div className="main-shell">
         <header className="topbar">
-          <div className="breadcrumbs">
-            <Folder size={15} />
-            <button
-              className="breadcrumb-link"
-              onClick={() => setDirectory(true)}
-            >
-              Проекты
-            </button>
-            {!directory && (
-              <>
-                <ChevronRight size={12} />
-                <strong>{project.name}</strong>
-              </>
-            )}
-          </div>
+          <button
+            className="breadcrumb-home"
+            onClick={() => setDirectory(true)}
+          >
+            Моё пространство
+          </button>
+          <ChevronRight size={13} />
+          <span>{directory ? "Проекты" : project.name}</span>
           <div className="topbar-actions">
             <button
               className="icon-button"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Настройки профиля и API"
-              title="Настройки профиля и API"
-            >
-              <Settings2 size={17} />
-            </button>
-            {!directory && project.demo && (
-              <span className="demo-badge">
-                <span />
-                Деморежим
-              </span>
-            )}
-            {!directory && (
-              <button
-                className={`icon-button ${eventsOpen ? "selected" : ""}`}
-                onClick={() => setEventsOpen(!eventsOpen)}
-                aria-label="События проекта"
-                title="События проекта"
-              >
-                <Activity size={18} />
-              </button>
-            )}
-            <button
-              className="icon-button mobile-chat-button"
-              onClick={() => setChatMobile(!chatMobile)}
-              aria-label="Чат с PM"
+              aria-label="Открыть чат"
+              onClick={() => setChatMobile((v) => !v)}
             >
               <MessageSquare size={18} />
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Управление проектом"
+              onClick={() => setProjectDetailsOpen(true)}
+            >
+              <MoreHorizontal size={19} />
             </button>
           </div>
         </header>
@@ -531,263 +450,122 @@ export default function App() {
             />
           ) : (
             <>
-              <div className="project-heading">
+              <header className="project-heading">
                 <div>
-                  <div className="eyebrow">
-                    ИССЛЕДОВАНИЕ <span>/</span>{" "}
-                    {project.demo
-                      ? "DEMO"
-                      : project.id.slice(0, 6).toUpperCase()}
-                  </div>
+                  {tab !== "overview" && tab !== "pages" && (
+                    <div className="project-kicker">
+                      {project.demo
+                        ? "ПРИМЕР ИССЛЕДОВАНИЯ"
+                        : "ИССЛЕДОВАТЕЛЬСКОЕ ПРОСТРАНСТВО"}
+                    </div>
+                  )}
                   <h1>{project.name}</h1>
-                  <p>
-                    {project.description ||
-                      "Добавь описание задачи и исходные данные."}
-                  </p>
                 </div>
-                <div className="project-heading-actions">
-                  <button
-                    className="icon-button project-details-button"
-                    title="Задача и управление проектом"
-                    aria-label="Задача и управление проектом"
-                    onClick={() => setProjectDetailsOpen(true)}
-                  >
-                    <MoreHorizontal size={17} />
-                  </button>
-                  <button
-                    className="project-settings-button"
-                    onClick={() => setProjectSettingsOpen(true)}
-                    title="Настройки проекта"
-                  >
-                    <Settings2 size={14} />
-                    <span>Настроить</span>
-                  </button>
+                <button
+                  className="icon-button"
+                  aria-label="Настройки проекта"
+                  onClick={() => setProjectSettingsOpen(true)}
+                >
+                  <Settings2 size={18} />
+                </button>
+              </header>
+              {tab !== "overview" && tab !== "pages" && (
+                <div className="project-intro">
+                  <p>{shortText(project.description, 110)}</p>
                   <Badge
-                    tone={
-                      project.status === "running"
-                        ? "green"
-                        : project.status === "completed"
-                          ? "neutral"
-                          : "amber"
-                    }
+                    tone={project.status === "completed" ? "green" : "neutral"}
                   >
-                    <span className={`tiny-dot ${project.status}`} />
-                    {statusLabels[project.status] || project.status}
+                    {project.archived
+                      ? "В архиве"
+                      : statusLabels[
+                          project.latest_run?.status || project.status
+                        ] || "Новый проект"}
                   </Badge>
                 </div>
-              </div>
-              <div className="tabs" role="tablist" aria-label="Разделы проекта">
+              )}
+              <nav
+                className="project-tabs"
+                aria-label="Разделы проекта"
+                role="tablist"
+              >
                 {tabs.map((t) => (
                   <button
                     role="tab"
-                    aria-selected={tab === t.id}
-                    className={tab === t.id ? "active" : ""}
-                    onClick={() => setTab(t.id)}
                     key={t.id}
+                    aria-selected={
+                      t.id === tab ||
+                      (t.id === "runs" &&
+                        ["teams", "experiments"].includes(tab)) ||
+                      (t.id === "overview" && tab === "pages")
+                    }
+                    className={
+                      t.id === tab ||
+                      (t.id === "runs" &&
+                        ["teams", "experiments"].includes(tab))
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() => setTab(t.id)}
                   >
                     {t.label}
-                    {t.id === "teams" && project.teams.length > 0 && (
-                      <span>{project.teams.length}</span>
-                    )}
                   </button>
                 ))}
-                <span className="tabs-trailing">
-                  {project.demo ? "Обновлено только что" : "Данные сохранены"}
-                </span>
-              </div>
-              {eventsOpen && (
-                <section className="events-popover">
-                  <div className="section-heading">
-                    <h2>События проекта</h2>
-                    <button
-                      className="icon-button"
-                      onClick={() => setEventsOpen(false)}
-                      aria-label="Закрыть события"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                  {project.events.length ? (
-                    project.events.map((event) => (
-                      <div className="popover-event" key={event.id}>
-                        <small>{event.time}</small>
-                        <div>
-                          <strong>{event.title}</strong>
-                          <p>{event.detail}</p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="muted">
-                      События появятся после запуска исследования.
-                    </p>
-                  )}
-                </section>
-              )}
-
-              {!project.demo && (tab === "overview" || tab === "runs") && (
-                <ResearchHistory
-                  key={`history:${project.id}`}
+              </nav>
+              {(tab === "overview" || tab === "pages") && (
+                <ResearchPages
+                  key={project.id}
                   project={project}
-                  expanded={tab === "runs"}
                   enabled={settings.execution_enabled}
+                  onDiscuss={() => {
+                    setChatMobile(true);
+                    document.getElementById("chat-input")?.focus();
+                  }}
+                />
+              )}
+              {tab === "files" && (
+                <Materials
+                  key={project.id}
+                  project={project}
                   changed={refreshProject}
                 />
               )}
-              {(tab === "overview" || tab === "runs") && (
-                <RunPanel
-                  project={project}
-                  enabled={settings.execution_enabled}
-                  history={tab === "runs"}
-                  openHistory={() => setTab("runs")}
-                  changed={refreshProject}
-                />
-              )}
-              {!project.demo && tab === "overview" && (
-                <ProjectPageOverview
-                  key={`report:${project.id}`}
-                  project={project}
-                  onEdit={() => setTab("pages")}
-                />
-              )}
-              {(tab === "overview" || tab === "teams") && (
+              {["runs", "teams", "experiments"].includes(tab) && (
                 <>
-                  {tab === "overview" && (
-                    <div className="summary-grid">
-                      <section className="best-result">
-                        <div className="summary-label">
-                          <span className="result-check">
-                            <Check size={13} />
-                          </span>
-                          {analytical ? "Итог анализа" : "Лучший результат"}
-                          <span className="metric-label">
-                            {(analytical ? "Отчёт" : project.metric) ||
-                              (project.latest_run?.publication
-                                ? "Артефакт"
-                                : "Метрика не выбрана")}
-                          </span>
-                        </div>
-                        <div className="result-value">
-                          {project.score ||
-                            (project.latest_run?.publication
-                              ? project.latest_run.publication.page_id
-                                ? "Отчёт"
-                                : "Готов"
-                              : analytical
-                                ? "Готовится"
-                                : "—")}
-                          {project.score && project.id === "demo-retention" && (
-                            <span>
-                              <ArrowUpRight size={13} />
-                              +0.0182
-                            </span>
-                          )}
-                        </div>
-                        <div className="result-bottom">
-                          <span>
-                            {project.latest_run?.publication?.page_id
-                              ? "Статусы проверки — в отчёте"
-                              : project.score || project.latest_run?.publication
-                                ? "Независимая проверка пройдена"
-                                : analytical
-                                  ? "Расчёты и проверка — в отчёте"
-                                  : "Появится после первого эксперимента"}
-                          </span>
-                          {project.score && (
-                            <button
-                              onClick={downloadDemo}
-                              aria-label="Скачать демонстрационный отчёт"
-                              title="Демонстрационный отчёт"
-                            >
-                              <ArrowDownToLine size={15} />
-                            </button>
-                          )}
-                          {!project.demo &&
-                            project.latest_run?.publication?.candidate_id && (
-                              <a
-                                title="Скачать проверенный submission.csv"
-                                aria-label="Скачать проверенный submission.csv"
-                                href={`/api/projects/${project.id}/runs/${project.latest_run.id}/artifact?path=${encodeURIComponent("task/submission.csv")}`}
-                              >
-                                <ArrowDownToLine size={15} />
-                              </a>
-                            )}
-                        </div>
-                        {project.demo && (
-                          <div className="mini-chart" aria-hidden="true">
-                            <svg viewBox="0 0 140 60">
-                              <path d="M0 55L20 49L38 51L57 35L76 38L94 18L112 21L140 2" />
-                            </svg>
-                          </div>
-                        )}
-                      </section>
-                      <section className="summary-card">
-                        <span className="summary-label">
-                          <Users size={15} />
-                          Команды
-                        </span>
-                        <div className="stat-value">
-                          {project.teams.length}
-                          <small>
-                            {project.teams.length
-                              ? `${project.teams.filter((t) => t.state === "running").length} исследуют`
-                              : "готовы к формированию"}
-                          </small>
-                        </div>
-                        <div className="summary-bottom">
-                          <span className="tiny-dot running" />
-                          {project.teams.reduce(
-                            (n, t) => n + t.members.length,
-                            0,
-                          )}{" "}
-                          агентов в проекте
-                        </div>
-                      </section>
-                      <section className="summary-card">
-                        <span className="summary-label">
-                          <FlaskConical size={15} />
-                          Эксперименты
-                        </span>
-                        <div className="stat-value">
-                          {project.experiments.length}
-                          <small>
-                            {
-                              project.experiments.filter(
-                                (e) => e.status === "verified",
-                              ).length
-                            }{" "}
-                            проверено
-                          </small>
-                        </div>
-                        <div className="summary-bottom">
-                          <Clock3 size={13} />
-                          {project.experiments.some(
-                            (e) => e.status === "running",
-                          )
-                            ? "Один эксперимент выполняется"
-                            : "Нет активных экспериментов"}
-                        </div>
-                      </section>
+                  <div className="section-heading">
+                    <div>
+                      <span className="eyebrow">ХОД РАБОТЫ</span>
+                      <h2>От вопроса к результату</h2>
                     </div>
+                  </div>
+                  <RunPanel
+                    project={project}
+                    enabled={settings.execution_enabled}
+                    history={false}
+                    openHistory={() => setEventsOpen((v) => !v)}
+                    changed={refreshProject}
+                  />
+                  {!project.demo && (
+                    <details className="workspace-disclosure">
+                      <summary>Цель и история исследования</summary>
+                      <ResearchHistory
+                        key={project.id}
+                        project={project}
+                        expanded
+                        enabled={settings.execution_enabled}
+                        changed={refreshProject}
+                      />
+                    </details>
                   )}
                   <section className="teams-section">
                     <div className="section-heading">
-                      <h2>
-                        Команды{" "}
-                        <span>
-                          {project.teams.length
-                            ? String(project.teams.length).padStart(2, "0")
-                            : ""}
-                        </span>
-                      </h2>
-                      {project.teams.length > 0 && (
-                        <span className="section-hint">
-                          <span className="tiny-dot running" />
-                          Работают автономно
-                        </span>
-                      )}
+                      <h3>Направления исследования</h3>
+                      <span className="muted">
+                        {project.teams.length
+                          ? `Всего ${project.teams.length}`
+                          : "Состав подбирается под задачу"}
+                      </span>
                     </div>
-                    {project.teams.length > 0 ? (
+                    {project.teams.length ? (
                       <div className="team-grid">
                         {project.teams.map((t) => (
                           <TeamCard
@@ -798,203 +576,62 @@ export default function App() {
                         ))}
                       </div>
                     ) : (
-                      <div className="empty-state">
-                        <span className="empty-icon">
-                          <Users size={27} strokeWidth={1.3} />
+                      <div className="quiet-empty">
+                        <Users size={22} />
+                        <span>
+                          Обсудите задачу с помощником. После запуска он
+                          подключит нужных специалистов.
                         </span>
-                        <h3>
-                          {project.status === "completed"
-                            ? "Работа завершена"
-                            : "Здесь соберётся команда"}
-                        </h3>
-                        <p>
-                          {project.demo
-                            ? "Открой «Отток клиентов», чтобы посмотреть активное исследование."
-                            : "Добавь задачу и данные, настрой исследование и начни запуск. Техлид соберёт команды под выбранные направления."}
-                        </p>
-                        {!project.demo && (
-                          <button
-                            className="button secondary"
-                            onClick={() => setTab("files")}
-                          >
-                            <Upload size={15} />
-                            Добавить данные
-                          </button>
-                        )}
                       </div>
                     )}
                   </section>
+                  {!!project.experiments.length && (
+                    <details className="workspace-disclosure">
+                      <summary>
+                        Выполненные расчёты · {project.experiments.length}
+                      </summary>
+                      <ExperimentRows
+                        rows={project.experiments}
+                        open={setExperiment}
+                      />
+                    </details>
+                  )}
+                  <details
+                    className="workspace-disclosure"
+                    open={eventsOpen}
+                    onToggle={(e) => setEventsOpen(e.currentTarget.open)}
+                  >
+                    <summary>Журнал и технические подробности</summary>
+                    <RunPanel
+                      project={project}
+                      enabled={settings.execution_enabled}
+                      history
+                      changed={refreshProject}
+                      openHistory={() => setEventsOpen(false)}
+                    />
+                    <div className="activity-feed">
+                      {project.events.map((event) => (
+                        <details key={event.id}>
+                          <summary>
+                            {event.time} · {event.title}
+                          </summary>
+                          <p>{event.detail}</p>
+                        </details>
+                      ))}
+                    </div>
+                  </details>
                 </>
               )}
-              {(tab === "overview" || tab === "experiments") && (
-                <section className="experiments-section">
-                  <div className="section-heading">
-                    <h2>
-                      {tab === "overview"
-                        ? "Последние эксперименты"
-                        : "Эксперименты"}
-                    </h2>
-                    {tab === "overview" && project.experiments.length > 0 && (
-                      <button
-                        className="text-button"
-                        onClick={() => setTab("experiments")}
-                      >
-                        Все эксперименты
-                        <ArrowRight size={14} />
-                      </button>
-                    )}
-                  </div>
-                  {project.experiments.length ? (
-                    <ExperimentRows
-                      rows={
-                        tab === "overview"
-                          ? project.experiments.slice(0, 3)
-                          : project.experiments
-                      }
-                      open={setExperiment}
-                    />
-                  ) : (
-                    <div className="quiet-empty">
-                      <FlaskConical size={20} />
-                      <span>Пока нет экспериментов</span>
-                    </div>
-                  )}
-                </section>
+              {project.demo && (
+                <p className="demo-notice">
+                  Демонстрационные данные · пример для знакомства с
+                  пространством
+                </p>
               )}
-              {tab === "overview" && (
-                <section className="activity-section">
-                  <div className="section-heading">
-                    <h2>Ход исследования</h2>
-                    <span className="section-hint">Последние события</span>
-                  </div>
-                  <div className="activity-feed">
-                    {project.events.map((event, index) => (
-                      <div className="feed-row" key={event.id}>
-                        <span className="feed-time">{event.time}</span>
-                        <div className={`feed-marker ${event.type}`}>
-                          {event.type === "result" ? (
-                            <Check size={11} />
-                          ) : (
-                            <span />
-                          )}
-                          {index < project.events.length - 1 && <i />}
-                        </div>
-                        <div>
-                          <strong>{event.title}</strong>
-                          <p>{event.detail}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {!project.events.length && (
-                      <p className="muted">
-                        Здесь появится история работы команды.
-                      </p>
-                    )}
-                  </div>
-                </section>
-              )}
-              {tab === "files" && (
-                <section>
-                  <div className="section-heading">
-                    <h2>
-                      Файлы проекта <span>{project.files.length}</span>
-                    </h2>
-                    <button
-                      className="button secondary small"
-                      disabled={uploading}
-                      onClick={() =>
-                        project.demo
-                          ? setNotice(
-                              "Создай свой проект, чтобы загрузить файлы.",
-                            )
-                          : uploadPicker.current?.click()
-                      }
-                    >
-                      {uploading ? (
-                        <Loader2 size={14} className="spin" />
-                      ) : (
-                        <Plus size={14} />
-                      )}
-                      Добавить файлы
-                    </button>
-                  </div>
-                  <input
-                    type="file"
-                    ref={uploadPicker}
-                    hidden
-                    multiple
-                    onChange={(e) => {
-                      void upload(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                  <div className="file-list">
-                    {project.files.map((file) => (
-                      <div className="file-row" key={file.id}>
-                        <span
-                          className={`file-symbol ${file.name.endsWith(".md") ? "markdown" : ""}`}
-                        >
-                          {file.name.endsWith(".md") ? (
-                            <FileText size={21} />
-                          ) : (
-                            <File size={21} />
-                          )}
-                        </span>
-                        <span>
-                          <strong>{file.name}</strong>
-                          <small>{file.kind}</small>
-                        </span>
-                        <span className="file-size">{size(file.size)}</span>
-                        {project.demo ? (
-                          <Badge>Демо</Badge>
-                        ) : (
-                          <a
-                            className="icon-button"
-                            href={`/api/projects/${project.id}/files/${file.id}`}
-                            aria-label={`Скачать ${file.name}`}
-                          >
-                            <ArrowDownToLine size={17} />
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {!project.files.length && (
-                    <button
-                      className="dropzone file-empty"
-                      onClick={() => uploadPicker.current?.click()}
-                    >
-                      <Upload size={25} />
-                      <span>Добавить исходные данные</span>
-                      <small>Датасет, task.md или пример результата</small>
-                    </button>
-                  )}
-                  {!project.demo && (
-                    <DocumentsPanel key={project.id} projectId={project.id} />
-                  )}
-                </section>
-              )}
-              {tab === "pages" &&
-                (project.demo ? (
-                  <p className="muted">
-                    Редактор страниц доступен в собственных проектах.
-                  </p>
-                ) : (
-                  <ResearchPages key={project.id} project={project} />
-                ))}
-              <footer className="content-footer">
-                <span className="footer-spark">✳</span>{" "}
-                {project.demo
-                  ? "Демонстрационный проект · все результаты вымышлены"
-                  : settings.execution_enabled
-                    ? "Личное исследовательское пространство"
-                    : "Вызовы модели отключены"}
-              </footer>
             </>
           )}
         </main>
       </div>
-
       <ChatPanel
         project={project}
         executionEnabled={settings.execution_enabled}
@@ -1003,16 +640,12 @@ export default function App() {
         sending={sending}
         messages={messages}
         draft={draft}
-        directive={directive}
-        intent={chatIntent}
-        onIntent={setChatIntent}
         onHistory={() => setTab("runs")}
         error={chatError}
         chatEnd={chatEnd}
         onClose={() => setChatMobile(false)}
         onNotice={setNotice}
         onDraft={setDraft}
-        onDirective={setDirective}
         onSend={send}
         onFiles={() => setTab("files")}
         onRetry={(messageId) => {
@@ -1020,10 +653,9 @@ export default function App() {
             .retry(project.id, messageId)
             .then(() => api.messages(project.id))
             .then(setMessages)
-            .catch((error) => setChatError(error.message));
+            .catch((e) => setChatError(e.message));
         }}
       />
-
       {projectDetailsOpen && (
         <Modal
           close={() => setProjectDetailsOpen(false)}
@@ -1148,7 +780,7 @@ export default function App() {
             <TeamIcon type={team.icon} size={25} />
           </div>
           <div className="team-modal-title">
-            <h2>{team.name}</h2>
+            <h2>{shortText(team.name, 110)}</h2>
             <Badge tone={team.state === "running" ? "green" : "neutral"}>
               {team.state === "running"
                 ? "В работе"
@@ -1157,25 +789,18 @@ export default function App() {
                   : "Ожидание"}
             </Badge>
           </div>
-          <p className="muted">{team.focus}</p>
-          {team.composition_reason && (
-            <p className="muted">
-              Почему такой состав: {team.composition_reason}
-            </p>
-          )}
-          {team.coordinator === false && (
-            <p className="muted">Координация напрямую через техлида</p>
-          )}
-          <div className="team-current">
-            <span className="eyebrow">СЕЙЧАС</span>
+          <p className="muted">{shortText(team.focus, 240)}</p>
+          <details className="technical-details">
+            <summary>Внутренняя задача направления</summary>
             <p>{team.current}</p>
-          </div>
+            <p>{team.composition_reason}</p>
+          </details>
           <TeamStaffing team={team} />
         </Modal>
       )}
       {experiment && (
         <Modal close={() => setExperiment(null)} label={experiment.name}>
-          <span className="eyebrow">{experiment.id} · ДЕМО</span>
+          <span className="eyebrow">РАСЧЁТ</span>
           <h2 className="experiment-modal-title">{experiment.name}</h2>
           <p className="muted">{experiment.team}</p>
           <div className="experiment-detail-score">

@@ -39,7 +39,11 @@ from .research import append_goal, append_iteration, latest_goal, latest_iterati
 class PMWorkspace(Service):
     def dispatch(self, message_id, name, arguments):
         canonical = json.dumps(arguments, sort_keys=True, ensure_ascii=False)
-        key = name if name in ("prepare_followup", "send_to_tech_lead") else name + canonical
+        key = (
+            name
+            if name in ("prepare_followup", "send_to_tech_lead", "compose_pages")
+            else name + canonical
+        )
         ident = str(uuid5(NAMESPACE_URL, message_id + ":pm-action:" + key))
         with self.sessions.begin() as db:
             source = db.get(Message, message_id)
@@ -85,6 +89,19 @@ class PMWorkspace(Service):
 
     def _perform(self, db, source, project, name, arguments, action_id):
         binding = source.context_binding or {}
+        if name == "compose_pages":
+            from dolphinlab.domain.pages import ComposeRequest
+
+            from .editor import EditorService
+
+            if source.intent != "question":
+                raise ValueError(
+                    "Для оформления сохранённых результатов сначала определи намерение question"
+                )
+            request = ComposeRequest.model_validate(arguments)
+            return EditorService(self.sessions).queue(
+                project.id, str(request.run_id), action_id, instruction=request.instruction, db=db
+            )
         if name in {"search_knowledge", "read_source"}:
             from .documents import DocumentService
 

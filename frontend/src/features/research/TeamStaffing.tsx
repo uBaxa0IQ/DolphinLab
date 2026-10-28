@@ -42,25 +42,21 @@ export default function TeamStaffing({ team }: { team: Team }) {
           <div key={m.name} className="member-row">
             <span className={`avatar ${m.color}`}>{m.name[0]}</span>
             <div>
-              <strong>
-                {roles[m.role] || m.name}
-                <span title={m.name}>
-                  {roles[m.role] ? m.name.slice(-8) : m.role}
-                </span>
-              </strong>
-              <p>{activities[m.state] || m.state}</p>
-              {m.profile_revision && (
+              <strong>{roles[m.role] || m.name}</strong>
+              <p>
+                {m.assignment_state === "completed"
+                  ? "Работа завершена"
+                  : activities[m.state] || "В работе"}
+              </p>
+              <details className="technical-details">
+                <summary>Назначение и технические подробности</summary>
                 <p>
-                  Профиль v{m.profile_revision} · назначение{" "}
-                  {m.assignment_revision}
+                  Профиль {m.profile_revision} · назначение{" "}
+                  {m.assignment_revision} · {m.name}
                 </p>
-              )}
-              {m.assignment && <p>{m.assignment}</p>}
-              {m.assignment_state && (
-                <p>
-                  Назначение: {states[m.assignment_state] || m.assignment_state}
-                </p>
-              )}
+                <p>{m.assignment}</p>
+                <p>{states[m.assignment_state || ""]}</p>
+              </details>
               {m.handover && (
                 <details>
                   <summary>Передача результатов</summary>
@@ -90,13 +86,13 @@ export default function TeamStaffing({ team }: { team: Team }) {
       <div className="team-modal-footer">
         <ShieldCheck size={15} />
         {team.reviewer_id
-          ? "Назначен evaluator; проверка требует отдельного результата"
+          ? "Результаты проверяет независимый специалист"
           : team.members.some(
                 (m) =>
                   m.role === "evaluator" ||
                   m.role.toLowerCase().includes("evaluator"),
               )
-            ? "В составе есть evaluator; статус проверки указан у результата"
+            ? "Статус независимой проверки указан в результатах"
             : "Независимый проверяющий подключается отдельно при необходимости"}
       </div>
       {!!team.staffing_history?.length && (

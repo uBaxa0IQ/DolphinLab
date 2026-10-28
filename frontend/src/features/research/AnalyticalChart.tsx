@@ -1,4 +1,6 @@
 import type { ChartData, TableData } from "../../types/reports";
+import Markdown from "../../components/Markdown";
+import { readableText } from "../../lib/presentation";
 
 const format = (value: number) =>
   value.toLocaleString("ru-RU", { maximumSignificantDigits: 6 });
@@ -114,10 +116,8 @@ export default function AnalyticalChart({
           {spec.y_label}
         </text>
       </svg>
-      <figcaption>
-        {spec.caption} · {valid.length} точек. {table.selection} · Объектов в
-        выборке: {table.sample_size}.
-      </figcaption>
+      {spec.caption && <figcaption>{readableText(spec.caption)}</figcaption>}
+      <details className="selection-details"><summary>О данных графика · {valid.length} точек</summary><Markdown text={table.selection} technical/><p>Наблюдений в выборке: {table.sample_size}</p></details>
     </figure>
   );
 }

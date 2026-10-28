@@ -8,9 +8,23 @@ export type PageBlock = {
   required: boolean;
   filter_text: string;
   origin_revision_id: string | null;
+  presentation?: {
+    heading: string;
+    view: "auto" | "summary" | "chart";
+    emphasis: "normal" | "hero" | "quiet";
+    chart: {
+      type: "bar" | "line" | "scatter";
+      x: string;
+      y: string;
+      x_label: string;
+      y_label: string;
+    } | null;
+  } | null;
 };
 export type PageSpec = {
-  schema_version: 1;
+  schema_version: 1 | 2;
+  lead?: string;
+  layout?: "story" | "dashboard";
   title: string;
   blocks: PageBlock[];
 };
@@ -42,6 +56,7 @@ export type PageManifest = {
   notices: { block_id: string; required: boolean; reason: string }[];
 };
 export type PageRelease = {
+  author?: Record<string, unknown>;
   id: string;
   revision_id: string;
   revision: number;

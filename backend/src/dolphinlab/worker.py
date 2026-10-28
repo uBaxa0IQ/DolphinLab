@@ -8,6 +8,7 @@ from sqlalchemy import select, text
 from dolphinlab.agents.project_manager import ProjectManager
 from dolphinlab.agents.session import ResearchSession
 from dolphinlab.application.documents import DocumentService
+from dolphinlab.application.editor import EditorService
 from dolphinlab.application.pages import PageService
 from dolphinlab.infrastructure.conversation_usage import recover_reservations
 from dolphinlab.infrastructure.database import ConversationAccount, Message, Run, Session, engine
@@ -24,12 +25,15 @@ class Worker:
         self.stopping = False
         self.active = None
         clients = ModelClientFactory()
+        self.clients = clients
+        self.editor = EditorService()
         self.manager = ProjectManager(saver, clients)
         self.researcher = ResearchSession(saver, clients)
 
     async def run(self):
         pm = asyncio.create_task(self.manager.run())
         ingestion = asyncio.create_task(self.ingest())
+        editing = asyncio.create_task(self.edit())
         try:
             while not self.stopping:
                 self.owner.execute(text("SELECT 1"))
@@ -37,6 +41,8 @@ class Worker:
                     await pm
                 if ingestion.done():
                     await ingestion
+                if editing.done():
+                    await editing
                 if self.active and self.active.done():
                     await self.active
                     self.active = None
@@ -67,7 +73,8 @@ class Worker:
             self.researcher.stopping = True
             pm.cancel()
             ingestion.cancel()
-            await asyncio.gather(pm, ingestion, return_exceptions=True)
+            editing.cancel()
+            await asyncio.gather(pm, ingestion, editing, return_exceptions=True)
             if self.researcher.runtime:
                 self.researcher.runtime.done = True
             if self.active:
@@ -80,6 +87,14 @@ class Worker:
             await asyncio.to_thread(documents.process_next)
             await asyncio.to_thread(pages.refresh_sources)
             await asyncio.sleep(1)
+
+    async def edit(self):
+        self.editor.recover()
+        while not self.stopping:
+            if ENABLED:
+                await asyncio.to_thread(self.editor.enqueue_completed)
+                await self.editor.process_next(self.clients)
+            await asyncio.sleep(2)
 
 
 async def main():

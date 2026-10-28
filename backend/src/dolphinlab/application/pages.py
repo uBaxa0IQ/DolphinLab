@@ -10,9 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from dolphinlab.api.dependencies import require_project
-from dolphinlab.domain.pages import PageFeedbackChange, PagePublish, PageSave, PageSpec
+from dolphinlab.domain.pages import (
+    EditorIdentity,
+    PageFeedbackChange,
+    PagePublish,
+    PageSave,
+    parse_page,
+)
 from dolphinlab.domain.research import request_fingerprint
 from dolphinlab.infrastructure.database import (
+    EditorJob,
     Event,
     PageFeedback,
     PageRefreshCursor,
@@ -66,6 +73,16 @@ class PageService(Service):
     def actor(self, db, project_id, actor):
         if actor is None:
             return {"kind": "user", "id": "workspace-user"}
+        if isinstance(actor, EditorIdentity):
+            job = db.get(EditorJob, actor.job_id)
+            if not job or job.project_id != project_id or job.state != "processing":
+                raise HTTPException(403, "Редакторская сборка недоступна")
+            return {
+                "kind": "editor",
+                "id": job.id,
+                "run_id": job.run_id,
+                "teams": [[t["run_id"], t["id"]] for t in job.snapshot["teams"]],
+            }
         run = db.scalar(select(Run).where(Run.id == actor["run_id"], Run.project_id == project_id))
         record = (
             db.scalar(
@@ -109,6 +126,10 @@ class PageService(Service):
     def authorize(self, page, author):
         if author["kind"] in {"user", "system"}:
             return
+        if author["kind"] == "editor":
+            if page.kind == "main" or [page.run_id, page.team_id] in author["teams"]:
+                return
+            raise HTTPException(403, "Направление вне редакторской сборки")
         if page.kind == "main":
             allowed = author["role"] in {"tech_lead", "report_editor"}
         else:
@@ -160,6 +181,18 @@ class PageService(Service):
                 raise HTTPException(404, "Результат блока не найден в проекте")
             if row.data["sha256"] != block.sha256:
                 raise HTTPException(409, "SHA256 результата не совпадает с выбранной ревизией")
+            view = getattr(block, "presentation", None)
+            if view and view.view == "chart":
+                if row.data["kind"] not in {"table", "dataset"}:
+                    raise HTTPException(422, "График требует подготовленную таблицу")
+                columns = {c["name"]: c for c in row.data["payload"]["columns"]}
+                if (
+                    view.chart.x not in columns
+                    or view.chart.y not in columns
+                    or columns[view.chart.y]["type"] != "number"
+                    or (view.chart.type == "scatter" and columns[view.chart.x]["type"] != "number")
+                ):
+                    raise HTTPException(422, "Оси графика не соответствуют подготовленным данным")
             if block.origin_revision_id:
                 origin = db.scalar(
                     select(PageRevision).where(
@@ -246,7 +279,7 @@ class PageService(Service):
                 spec["blocks"].insert(min(position, len(spec["blocks"])), copy.deepcopy(block))
         if len(spec["blocks"]) > 20:
             raise HTTPException(409, "Освободи место для закреплённых блоков: предел страницы — 20")
-        spec = PageSpec.model_validate(spec)
+        spec = parse_page(spec)
         self.validate_sources(db, project_id, spec)
         row = self.write_revision(
             db, page, spec.model_dump(mode="json"), author, str(body.client_id), fingerprint
@@ -378,7 +411,7 @@ class PageService(Service):
         for ident, pinned in page.user_state.get("pins", {}).items():
             if not any(b == pinned for b in revision.spec["blocks"]):
                 raise HTTPException(409, "Публикация должна сохранять закреплённые блоки")
-        self.validate_sources(db, project_id, PageSpec.model_validate(revision.spec))
+        self.validate_sources(db, project_id, parse_page(revision.spec))
         manifest = self.manifest(db, project_id, revision.spec, body.outcome, enforce=True)
         if revision.revision != page.revision:
             revision = self.write_revision(
@@ -428,13 +461,26 @@ class PageService(Service):
             "created": release.created.isoformat(),
         }
 
-    def feedback(self, project_id, page_id, body: PageFeedbackChange):
+    def feedback(
+        self, project_id, page_id, body: PageFeedbackChange, *, expected_page_revision=None
+    ):
         with self.sessions.begin() as db:
             self.lock(db, project_id)
             page = self.page(db, project_id, page_id)
-            existing, fingerprint = self.replay(db, PageFeedback, project_id, body, page_id)
+            existing, fingerprint = self.replay(
+                db,
+                PageFeedback,
+                project_id,
+                body,
+                page_id
+                + (f":{expected_page_revision}" if expected_page_revision is not None else ""),
+            )
             if existing:
                 return {"revision": existing.revision, "user_state": existing.user_state}
+            if expected_page_revision is not None and page.revision != expected_page_revision:
+                raise HTTPException(
+                    409, "Черновик обновился. Обновите страницу перед закреплением блока"
+                )
             if page.feedback_revision != body.expected_revision:
                 raise HTTPException(409, "Пользовательские правки изменились; обнови страницу")
             state = copy.deepcopy(page.user_state)

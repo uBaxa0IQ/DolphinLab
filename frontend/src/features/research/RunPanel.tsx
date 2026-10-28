@@ -151,7 +151,7 @@ export default function RunPanel({
             <span
               title={
                 !enabled
-                  ? "Включи ENABLE_MODEL_CALLS в Docker, чтобы разрешить запросы к модели"
+                  ? "Запросы к модели отключены в настройках пространства"
                   : undefined
               }
             >
@@ -228,87 +228,90 @@ export default function RunPanel({
       )}
       {!project.demo && !project.archived && !enabled && (
         <p className="run-offline">
-          Вызовы модели отключены в Docker. Проекты, файлы и настройки
+          Помощник сейчас отключён. Материалы, переписка и результаты
           сохраняются.
         </p>
       )}
-      {run?.usage?.requests !== undefined && (
-        <div className="run-usage">
-          <span>{run.usage.requests} запросов</span>
-          <span>
-            {(
-              (run.usage.prompt_tokens || 0) +
-              (run.usage.completion_tokens || 0)
-            ).toLocaleString("ru-RU")}{" "}
-            токенов
-          </span>
-          <span>
-            {run.usage.currency === "unavailable"
-              ? "Стоимость недоступна"
-              : `${(run.usage.accounted_cost || 0).toFixed(3)} ${run.usage.currency || ""}`}
-          </span>
-          {!!run.usage.reserved_cost && (
-            <span>Резерв: {run.usage.reserved_cost.toFixed(3)}</span>
-          )}
-          <span>
-            Лимит:{" "}
-            {run.usage.budget_limit ??
-              run.policy.limits.api_budget ??
-              "не задан"}
-          </span>
-          {!project.archived &&
-            !project.demo &&
-            !["completed", "stopped"].includes(run.status) && (
-              <button
-                className="button secondary small"
-                disabled={busy}
-                onClick={() => {
-                  setBudgetDraft(
-                    String(
-                      run.usage.budget_limit ??
-                        run.policy.limits.api_budget ??
-                        "",
-                    ),
-                  );
-                  setBudgetRequestId(crypto.randomUUID());
-                }}
-              >
-                Изменить лимит
-              </button>
+      <details className="technical-details">
+        <summary>Расходы и лимиты исследования</summary>
+        {run?.usage?.requests !== undefined && (
+          <div className="run-usage">
+            <span>{run.usage.requests} запросов</span>
+            <span>
+              {(
+                (run.usage.prompt_tokens || 0) +
+                (run.usage.completion_tokens || 0)
+              ).toLocaleString("ru-RU")}{" "}
+              токенов
+            </span>
+            <span>
+              {run.usage.currency === "unavailable"
+                ? "Стоимость недоступна"
+                : `${(run.usage.accounted_cost || 0).toFixed(3)} ${run.usage.currency || ""}`}
+            </span>
+            {!!run.usage.reserved_cost && (
+              <span>Резерв: {run.usage.reserved_cost.toFixed(3)}</span>
             )}
-        </div>
-      )}
-      {budgetDraft !== null && (
-        <form className="run-usage" onSubmit={saveBudget}>
-          <label>
-            Лимит API этого запуска, {run?.usage.currency}
-            <input
-              type="number"
-              min="0.001"
-              step="any"
-              required
-              aria-label="Лимит API этого запуска"
-              value={budgetDraft}
-              onChange={(e) => setBudgetDraft(e.target.value)}
-            />
-          </label>
-          <button
-            className="button primary small"
-            disabled={busy}
-            type="submit"
-          >
-            Сохранить лимит
-          </button>
-          <button
-            className="button secondary small"
-            disabled={busy}
-            type="button"
-            onClick={() => setBudgetDraft(null)}
-          >
-            Отмена
-          </button>
-        </form>
-      )}
+            <span>
+              Лимит:{" "}
+              {run.usage.budget_limit ??
+                run.policy.limits.api_budget ??
+                "не задан"}
+            </span>
+            {!project.archived &&
+              !project.demo &&
+              !["completed", "stopped"].includes(run.status) && (
+                <button
+                  className="button secondary small"
+                  disabled={busy}
+                  onClick={() => {
+                    setBudgetDraft(
+                      String(
+                        run.usage.budget_limit ??
+                          run.policy.limits.api_budget ??
+                          "",
+                      ),
+                    );
+                    setBudgetRequestId(crypto.randomUUID());
+                  }}
+                >
+                  Изменить лимит
+                </button>
+              )}
+          </div>
+        )}
+        {budgetDraft !== null && (
+          <form className="run-usage" onSubmit={saveBudget}>
+            <label>
+              Лимит API этого запуска, {run?.usage.currency}
+              <input
+                type="number"
+                min="0.001"
+                step="any"
+                required
+                aria-label="Лимит API этого запуска"
+                value={budgetDraft}
+                onChange={(e) => setBudgetDraft(e.target.value)}
+              />
+            </label>
+            <button
+              className="button primary small"
+              disabled={busy}
+              type="submit"
+            >
+              Сохранить лимит
+            </button>
+            <button
+              className="button secondary small"
+              disabled={busy}
+              type="button"
+              onClick={() => setBudgetDraft(null)}
+            >
+              Отмена
+            </button>
+          </form>
+        )}
+      </details>
       {run?.error && <p className="form-error">{run.error}</p>}
       {error && (
         <p className="form-error" role="alert">
@@ -330,7 +333,7 @@ export default function RunPanel({
           ) : runs.length ? (
             runs.map((item) => (
               <div className="run-history-row" key={item.id}>
-                <span className="run-id">{item.id.slice(0, 8)}</span>
+                <span className="run-id">Исследование</span>
                 <div>
                   <strong>{statusLabels[item.status]}</strong>
                   <small>

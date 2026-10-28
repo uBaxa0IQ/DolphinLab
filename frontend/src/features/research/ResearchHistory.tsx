@@ -1,3 +1,5 @@
+import Markdown from "../../components/Markdown";
+import { shortText } from "../../lib/presentation";
 import {
   ChevronDown,
   History,
@@ -184,7 +186,10 @@ export default function ResearchHistory({
       </div>
       {current && !draft && (
         <>
-          <p className="research-question">{current.goal.question}</p>
+          <details className="research-question">
+            <summary>{shortText(current.goal.question, 200)}</summary>
+            <Markdown text={current.goal.question} technical />
+          </details>
           {(current.goal.expected_outputs.length > 0 ||
             current.goal.constraints.length > 0 ||
             Object.keys(current.goal.definitions).length > 0 ||
@@ -392,7 +397,7 @@ export default function ResearchHistory({
                   )}
                   {iteration.runs.map((run) => (
                     <p className="iteration-run" key={run.id}>
-                      Запуск {run.id.slice(0, 8)}{" "}
+                      Исследование{" "}
                       <span>{statusLabels[run.status] || run.status}</span>
                     </p>
                   ))}

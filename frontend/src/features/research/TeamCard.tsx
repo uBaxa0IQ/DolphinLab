@@ -1,5 +1,6 @@
 import { ArrowUpRight } from "lucide-react";
 import TeamIcon from "../../components/TeamIcon";
+import { shortText } from "../../lib/presentation";
 import type { Team } from "../../types";
 
 export default function TeamCard({
@@ -20,25 +21,19 @@ export default function TeamCard({
           <ArrowUpRight size={17} />
         </span>
       </div>
-      <h3>{team.name}</h3>
-      <p className="team-focus">{team.focus}</p>
+      <h3>{shortText(team.name, 110)}</h3>
+      <p className="team-focus">{shortText(team.focus, 120)}</p>
       <div className="team-stage">
         <span className={`tiny-dot ${team.state}`} />
-        {team.stage}
+        {team.state === "closed"
+          ? "Работа завершена"
+          : team.state === "running"
+            ? "В работе"
+            : "Ожидание"}
       </div>
-      <p className="team-description">{team.current}</p>
+
       <div className="team-card-bottom">
-        <div className="avatar-stack">
-          {team.members.map((m) => (
-            <span
-              key={m.name}
-              className={`avatar ${m.color}`}
-              title={`${m.name} · ${m.role}`}
-            >
-              {m.name[0]}
-            </span>
-          ))}
-        </div>
+        <span className="muted">Специалистов: {team.members.length}</span>
         <span className="team-updated">{team.updated}</span>
       </div>
     </button>

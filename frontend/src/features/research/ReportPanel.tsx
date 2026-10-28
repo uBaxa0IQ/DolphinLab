@@ -1,3 +1,6 @@
+import Markdown from "../../components/Markdown";
+import { shortText } from "../../lib/presentation";
+import type { PageBlock } from "../../types/pages";
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 import type { Project, ResearchRun } from "../../types";
@@ -108,7 +111,10 @@ export default function ReportPanel({ project }: { project: Project }) {
             {runs.map((r) => (
               <option value={r.id} key={r.id}>
                 {new Date(r.created).toLocaleDateString("ru-RU")} ·{" "}
-                {r.id.slice(0, 8)}
+                {new Date(r.created).toLocaleTimeString("ru-RU", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </option>
             ))}
           </select>
@@ -217,6 +223,7 @@ export function ResultBlock({
   root = false,
   refresh = "",
   filterText = "",
+  presentation,
 }: {
   projectId: string;
   runId: string;
@@ -224,6 +231,7 @@ export function ResultBlock({
   root?: boolean;
   refresh?: string;
   filterText?: string;
+  presentation?: PageBlock["presentation"];
 }) {
   const [result, setResult] = useState<ResultRecord | null>(null),
     [error, setError] = useState("");
@@ -249,23 +257,49 @@ export function ResultBlock({
     );
   if (!result) return <p className="muted">Загружаем блок…</p>;
   const p = result.payload;
+  const reportSummary =
+    result.kind === "report" ? (
+      <>
+        <Markdown
+          className="report-prose report-summary"
+          text={(p as ReportData).summary}
+          technical
+        />
+        <Limitations items={(p as ReportData).limitations} />
+      </>
+    ) : null;
   return (
     <article className={`report-block ${root ? "report-root" : ""}`}>
-      {!root && <h3>{result.title}</h3>}
+      {!root && (
+        <h3>{shortText(presentation?.heading || result.title, 220)}</h3>
+      )}
       <span className={`report-status ${result.status}`}>
-        {statusNames[result.status] || result.status} · v{result.revision}
+        {statusNames[result.status] || result.status}
       </span>
       {!result.applicable && (
         <p className="form-error">
-          В проекте уже другая версия данных или документных источников. Этот
-          результат относится к сохранённой версии.
+          Используются сохранённые версии данных или методики. Учитывайте их при
+          сравнении с новыми результатами.
         </p>
       )}
       {result.status === "broken" ? (
         <p className="form-error">
-          Хеш или доступность доказательства изменились. Блок сохранён в
-          истории, но его проверка требует пересмотра.
+          Подтверждающие материалы недоступны. Результат сохранён, но его нужно
+          проверить заново.
         </p>
+      ) : presentation?.view === "chart" &&
+        presentation.chart &&
+        (result.kind === "table" || result.kind === "dataset") ? (
+        <>
+          <AnalyticalChart
+            spec={{ ...presentation.chart, table_id: id, caption: "" }}
+            table={p as TableData}
+          />
+          <details className="selection-details">
+            <summary>Данные графика</summary>
+            <PreparedTable data={p as TableData} filterText={filterText} />
+          </details>
+        </>
       ) : result.kind === "table" || result.kind === "dataset" ? (
         <PreparedTable data={p as TableData} filterText={filterText} />
       ) : result.kind === "metric" ? (
@@ -276,14 +310,21 @@ export function ResultBlock({
             })}
           </strong>
           <span>{(p as { unit: string }).unit}</span>
-          <p>
-            {(p as { selection: string }).selection} · Объектов:{" "}
-            {(p as { sample_size: number }).sample_size}
-          </p>
+          <details className="selection-details">
+            <summary>
+              О выборке · {(p as { sample_size: number }).sample_size}{" "}
+              наблюдений
+            </summary>
+            <Markdown text={(p as { selection: string }).selection} technical />
+          </details>
         </div>
       ) : result.kind === "finding" ? (
         <>
-          <p className="report-prose">{(p as { text: string }).text}</p>
+          <Markdown
+            className="report-prose"
+            text={(p as { text: string }).text}
+            technical
+          />
           <Limitations items={(p as { limitations: string[] }).limitations} />
         </>
       ) : result.kind === "chart" ? (
@@ -296,27 +337,33 @@ export function ResultBlock({
         />
       ) : result.kind === "report" ? (
         <>
-          <p className="report-prose report-summary">
-            {(p as ReportData).summary}
-          </p>
-          <Limitations items={(p as ReportData).limitations} />
-          <div className="report-blocks">
-            {(p as ReportData).blocks.map((block, i) => (
-              <section key={id + ":" + i}>
-                <BlockBoundary>
-                  <ResultBlock
-                    projectId={projectId}
-                    runId={runId}
-                    refresh={refresh}
-                    id={block.result_id}
-                    filterText={filterText}
-                  />
-                </BlockBoundary>
-                {block.caption && <p className="muted">{block.caption}</p>}
-                {!block.required && <small>Дополнительный блок</small>}
-              </section>
-            ))}
-          </div>
+          {presentation?.view === "summary" ? (
+            <details className="report-summary-details">
+              <summary>Прочитать проверенный отчёт</summary>
+              {reportSummary}
+            </details>
+          ) : (
+            reportSummary
+          )}
+          {presentation?.view !== "summary" && (
+            <div className="report-blocks">
+              {(p as ReportData).blocks.map((block, i) => (
+                <section key={id + ":" + i}>
+                  <BlockBoundary>
+                    <ResultBlock
+                      projectId={projectId}
+                      runId={runId}
+                      refresh={refresh}
+                      id={block.result_id}
+                      filterText={filterText}
+                    />
+                  </BlockBoundary>
+                  {block.caption && <p className="muted">{block.caption}</p>}
+                  {!block.required && <small>Дополнительный блок</small>}
+                </section>
+              ))}
+            </div>
+          )}
         </>
       ) : null}
       <details className="report-evidence">
@@ -373,12 +420,53 @@ function Limitations({ items }: { items: string[] }) {
     <aside className="report-limitations">
       <strong>Ограничения вывода</strong>
       {items.map((s, i) => (
-        <p key={i}>{s}</p>
+        <Markdown key={i} text={s} technical />
       ))}
     </aside>
   ) : null;
 }
-function PreparedTable({
+export function PreparedTable({
+  data,
+  filterText = "",
+}: {
+  data: TableData;
+  filterText?: string;
+}) {
+  const columns = data.columns
+    .map((column, index) => ({ column, index }))
+    .filter(
+      ({ column }) =>
+        !/(?:sha256|(?:version|chunk|document|artifact|run|result|assessment)_id)/i.test(
+          column.name + " " + column.label,
+        ),
+    );
+  const rows = data.rows.filter(
+    (row) => !/^\s*SHA256\b/i.test(String(row[0] || "")),
+  );
+  const technical =
+    columns.length !== data.columns.length || rows.length !== data.rows.length;
+  if (!technical) return <RawTable data={data} filterText={filterText} />;
+  return (
+    <>
+      {columns.length > 0 && (
+        <RawTable
+          data={{
+            ...data,
+            columns: columns.map((c) => c.column),
+            rows: rows.map((row) => columns.map((c) => row[c.index])),
+          }}
+          filterText={filterText}
+        />
+      )}
+      <details className="technical-details">
+        <summary>Технические атрибуты источников</summary>
+        <RawTable data={data} filterText={filterText} />
+      </details>
+    </>
+  );
+}
+
+function RawTable({
   data,
   filterText = "",
 }: {
@@ -398,12 +486,19 @@ function PreparedTable({
     : data.rows;
   return (
     <>
-      <p className="muted">
-        {data.selection} · Объектов в выборке: {data.sample_size}. Строк в
-        подготовленной таблице: {data.rows.length}.
-        {filterText &&
-          ` Локальный фильтр представления: ${rows.length} строк. Исходная выборка не изменена.`}
-      </p>
+      <details className="selection-details">
+        <summary>
+          О выборке · {data.sample_size.toLocaleString("ru-RU")} наблюдений
+        </summary>
+        <Markdown text={data.selection} technical />
+        <p>Строк в подготовленной таблице: {data.rows.length}</p>
+      </details>
+      {filterText && (
+        <p className="muted">
+          Фильтр представления: {rows.length} строк. Исходные данные не
+          изменены.
+        </p>
+      )}
       <div className="report-table-scroll">
         <table>
           <thead>
@@ -411,7 +506,12 @@ function PreparedTable({
               {data.columns.map((c) => (
                 <th key={c.name}>
                   {c.label}
-                  {c.unit ? ` (${c.unit})` : ""}
+                  {c.unit &&
+                  !c.label
+                    .toLocaleLowerCase()
+                    .includes(c.unit.toLocaleLowerCase())
+                    ? ` (${c.unit})`
+                    : ""}
                 </th>
               ))}
             </tr>

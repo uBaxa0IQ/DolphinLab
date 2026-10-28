@@ -1,9 +1,10 @@
 """Code-free page composition. A page never grants a scientific assessment."""
 
+from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_serializer, model_validator
 
 
 class PageBlock(BaseModel):
@@ -34,6 +35,51 @@ class PageSpec(BaseModel):
         return self
 
 
+class PlotView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["bar", "line", "scatter"]
+    x: str = Field(min_length=1, max_length=120)
+    y: str = Field(min_length=1, max_length=120)
+    x_label: str = Field(min_length=1, max_length=200)
+    y_label: str = Field(min_length=1, max_length=200)
+
+
+class BlockPresentation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    heading: str = Field(default="", max_length=200)
+    view: Literal["auto", "summary", "chart"] = "auto"
+    emphasis: Literal["normal", "hero", "quiet"] = "normal"
+    chart: PlotView | None = None
+
+    @model_validator(mode="after")
+    def chart_required(self):
+        if (self.view == "chart") != (self.chart is not None):
+            raise ValueError("A chart view requires chart axes")
+        return self
+
+
+class EditorialBlock(PageBlock):
+    presentation: BlockPresentation | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_empty_presentation(self, handler):
+        value = handler(self)
+        if self.presentation is None:
+            value.pop("presentation", None)
+        return value
+
+
+class EditorialPage(PageSpec):
+    schema_version: Literal[2] = 2
+    lead: str = Field(default="", max_length=4000)
+    layout: Literal["story", "dashboard"] = "story"
+    blocks: list[EditorialBlock] = Field(default_factory=list, max_length=20)
+
+
+def parse_page(value):
+    return TypeAdapter(PageSpec | EditorialPage).validate_python(value)
+
+
 class PageSave(BaseModel):
     model_config = ConfigDict(extra="forbid")
     client_id: UUID
@@ -59,6 +105,41 @@ class PagePublish(BaseModel):
     expected_feedback_revision: int = Field(ge=0)
     revision_id: UUID
     outcome: Literal["complete", "inconclusive"] = "complete"
+
+
+class EditorialSave(PageSave):
+    page: EditorialPage
+
+
+@dataclass(frozen=True)
+class EditorIdentity:
+    """Internal capability; never accepted from HTTP/agent tool arguments."""
+
+    job_id: str
+
+
+class ComposePage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["main", "team"]
+    team_id: str | None = None
+    run_id: UUID | None = None
+    page: EditorialPage
+    outcome: Literal["complete", "inconclusive"] = "complete"
+
+
+class EditorPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pages: list[ComposePage] = Field(min_length=1, max_length=13)
+
+
+class ComposeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_id: UUID
+    instruction: str = Field(default="", max_length=4000)
+
+
+class StartEditor(ComposeRequest):
+    client_id: UUID
 
 
 class PageFeedbackChange(BaseModel):

@@ -329,6 +329,20 @@ class PagesTest(unittest.TestCase):
         after = PageService().read(self.pid, saved["page_id"])
         self.assertEqual(after["draft"]["page"]["blocks"][0]["result_id"], self.result["id"])
         self.assertEqual(after["draft"]["page"]["blocks"][1]["result_id"], new["id"])
+        self.status(
+            409,
+            lambda: self.pages.feedback(
+                self.pid,
+                saved["page_id"],
+                PageFeedbackChange(
+                    client_id=uuid4(),
+                    expected_revision=1,
+                    action="pin",
+                    block_id=second_block["id"],
+                ),
+                expected_page_revision=1,
+            ),
+        )
         self.assertEqual(after["publication"]["id"], published["id"])
         self.assertEqual(after["publication"]["page"]["blocks"][1]["result_id"], self.result["id"])
         self.pages.refresh_sources()

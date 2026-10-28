@@ -19,6 +19,7 @@ from dolphinlab.infrastructure.database import (
     Document,
     DocumentChunk,
     DocumentVersion,
+    EditorJob,
     Event,
     GoalRevision,
     InputFile,
@@ -132,6 +133,14 @@ class ProjectService(Service):
             if not project:
                 raise HTTPException(404)
             if db.scalar(
+                select(EditorJob.id).where(
+                    EditorJob.project_id == project_id, EditorJob.state == "processing"
+                )
+            ):
+                raise HTTPException(
+                    409, "Дождитесь завершения редакторской сборки перед удалением проекта"
+                )
+            if db.scalar(
                 select(Run.id).where(
                     Run.project_id == project_id,
                     Run.status.not_in(["completed", "stopped", "failed"]),
@@ -156,7 +165,7 @@ class ProjectService(Service):
                     db.execute(text(f"DELETE FROM {table} WHERE {condition}"), parameters)
             for model in (ResearchReceipt, ResearchMail, ResearchEvent, ResearchObject):
                 db.execute(delete(model).where(model.run_id.in_(run_ids)))
-            for model in (PageFeedback, PageRelease, PageRevision, ProjectPage):
+            for model in (EditorJob, PageFeedback, PageRelease, PageRevision, ProjectPage):
                 db.execute(delete(model).where(model.project_id == project_id))
             for model in (ProjectMemory, ContextManifest, PMAction, ConversationAccount):
                 db.execute(delete(model).where(model.project_id == project_id))

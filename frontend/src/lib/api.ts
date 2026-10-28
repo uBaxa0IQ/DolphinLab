@@ -52,6 +52,21 @@ async function createOnce<T>(
   return result;
 }
 export const api = {
+  editor: (id: string) =>
+    request<{
+      id: string;
+      run_id: string;
+      state: string;
+      error: string | null;
+      output: { page_id: string; release_id: string }[];
+    } | null>(`/projects/${id}/pages/editor`),
+  composePages: (id: string, runId: string) =>
+    createOnce<{ state: string }>(
+      JSON.stringify(["editor", id, runId]),
+      `/projects/${id}/pages/editor`,
+      { run_id: runId },
+    ),
+
   pages: (id: string) => request<PageSummary[]>(`/projects/${id}/pages`),
   pageCatalog: (id: string) =>
     request<PageCatalog>(`/projects/${id}/pages/catalog`),
@@ -112,10 +127,18 @@ export const api = {
       comment_id?: string;
       text?: string;
     },
+    pageRevision?: number,
   ) =>
     createOnce<{ revision: number; user_state: unknown }>(
-      JSON.stringify(["page-feedback", id, page, revision, change]),
-      `/projects/${id}/pages/${page}/feedback`,
+      JSON.stringify([
+        "page-feedback",
+        id,
+        page,
+        revision,
+        change,
+        pageRevision,
+      ]),
+      `/projects/${id}/pages/${page}/feedback${pageRevision === undefined ? "" : `?expected_page_revision=${pageRevision}`}`,
       { expected_revision: revision, ...change },
     ),
   documents: (id: string) =>

@@ -373,10 +373,11 @@ export default function ProjectSettingsPanel({
               </label>
               <label className="policy-limit-row">
                 <span>
-                  <strong>Бюджет общения PM</strong>
+                  <strong>Бюджет помощника и редактора</strong>
                   <small>
-                    В валюте тарифа, отдельно от исследования. 0 — общение с
-                    моделью выключено. Расход сохраняется между итерациями.
+                    В валюте тарифа, отдельно от вычислений. Общий для диалога и
+                    оформления страниц. 0 — работа с моделью выключено. Расход
+                    сохраняется между итерациями.
                   </small>
                 </span>
                 <span className="policy-number">
@@ -384,7 +385,7 @@ export default function ProjectSettingsPanel({
                     type="number"
                     min={0}
                     step="any"
-                    aria-label="Бюджет общения PM"
+                    aria-label="Бюджет помощника и редактора"
                     value={policy.conversation?.api_budget ?? 0}
                     onChange={(event) =>
                       setPolicy((before) => ({

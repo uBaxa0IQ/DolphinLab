@@ -1,3 +1,5 @@
+import Markdown from "../../components/Markdown";
+import { Pin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import type { Project } from "../../types";
@@ -10,7 +12,7 @@ import type {
   PageSpec,
   PageSummary,
 } from "../../types/pages";
-import ReportPanel, { BlockBoundary, ResultBlock } from "./ReportPanel";
+import { BlockBoundary, ResultBlock } from "./ReportPanel";
 import "./ResearchPages.css";
 
 const blank = (): PageSpec => ({
@@ -26,109 +28,63 @@ const date = (value: string) =>
     minute: "2-digit",
   });
 
-export function ProjectPageOverview({
-  project,
-  onEdit,
-}: {
-  project: Project;
-  onEdit: () => void;
-}) {
-  const [page, setPage] = useState<PageRecord | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    api
-      .pages(project.id)
-      .then(async (pages) => {
-        const main = pages.find((p) => p.kind === "main" && p.published_id);
-        const value = main ? await api.page(project.id, main.id) : null;
-        if (active) {
-          setPage(value);
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [project.id, project.latest_run?.updated]);
-  return (
-    <>
-      {error && (
-        <p className="form-error" role="alert">
-          Не удалось обновить общую страницу: {error}
-        </p>
-      )}
-      {page?.publication ? (
-        <section className="research-pages" aria-label="Общая страница проекта">
-          <div className="page-toolbar">
-            <span className="eyebrow">ОБЩАЯ СТРАНИЦА ПРОЕКТА</span>
-            <button className="button secondary small" onClick={onEdit}>
-              Страницы и история
-            </button>
-          </div>
-          <PagePreview
-            projectId={project.id}
-            page={page.publication.page}
-            release={page.publication}
-            refresh={project.latest_run?.updated}
-          />
-        </section>
-      ) : (
-        <ReportPanel project={project} />
-      )}
-    </>
-  );
-}
-
 export function PagePreview({
   projectId,
   page,
   release,
   filter = "",
   refresh = "",
+  pins = {},
+  onPin,
+  canPin,
+  showPublicationMeta = true,
 }: {
   projectId: string;
   page: PageSpec;
   release?: PageRelease | null;
   filter?: string;
   refresh?: string;
+  pins?: Record<string, unknown>;
+  onPin?: (id: string, pinned: boolean) => void;
+  canPin?: (block: PageBlock) => boolean;
+  showPublicationMeta?: boolean;
 }) {
   return (
     <div className="research-page-preview">
       <h2>{page.title}</h2>
-      {release ? (
-        <p className="muted">
-          Опубликована · версия {release.revision} · {date(release.created)}
-        </p>
-      ) : (
-        <p className="page-draft-label">
-          Предпросмотр черновика · не опубликован
-        </p>
+      {page.lead && (
+        <Markdown className="editor-lead" text={page.lead} technical />
       )}
+      {showPublicationMeta &&
+        (release ? (
+          <p className="muted">
+            Опубликована · версия {release.revision} · {date(release.created)}
+          </p>
+        ) : (
+          <p className="page-draft-label">
+            Предпросмотр черновика · не опубликован
+          </p>
+        ))}
       {release?.current_evidence.needs_review && (
         <p className="form-error" role="status">
           Проверка обязательных доказательств изменилась. Публикация сохранена в
           истории и требует пересмотра.
         </p>
       )}
-      <div className="research-page-grid">
+      <div className={`research-page-grid ${page.layout || "story"}`}>
         {page.blocks.map((block) => (
           <section
             key={block.id}
-            className={`research-page-cell ${block.width}`}
+            className={`research-page-cell ${block.width} emphasis-${block.presentation?.emphasis || "normal"}`}
           >
             {block.caption && (
-              <p className="page-editor-caption">
-                <span>Подпись редактора</span>
-                {block.caption}
-              </p>
+              <div className="page-editor-caption">
+                <Markdown text={block.caption} technical />
+              </div>
             )}
             {!block.required && (
               <p className="muted">
-                Дополнительный материал · статус проверки указан у результата
+                Дополнительный материал
               </p>
             )}
             <BlockBoundary
@@ -140,11 +96,22 @@ export function PagePreview({
                 id={block.result_id}
                 filterText={filter || block.filter_text}
                 refresh={refresh}
+                presentation={block.presentation}
               />
             </BlockBoundary>
+            {onPin && (!canPin || canPin(block)) && (
+              <button
+                className={`page-pin ${pins[block.id] ? "pinned" : ""}`}
+                aria-label={`${pins[block.id] ? "Открепить" : "Закрепить"} блок ${page.blocks.indexOf(block) + 1}`}
+                onClick={() => onPin(block.id, !!pins[block.id])}
+              >
+                <Pin size={13} />
+                {pins[block.id] ? "Закреплено" : "Закрепить"}
+              </button>
+            )}
             {release && (
               <details className="page-provenance">
-                <summary>Источник и состояние на момент публикации</summary>
+                <summary>Технический снимок публикации</summary>
                 <p>Запуск: {block.run_id}</p>
                 <p>
                   Результат: {block.result_id} · SHA256 {block.sha256}

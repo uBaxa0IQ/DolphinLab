@@ -498,3 +498,28 @@ class PageRefreshCursor(Base):
     __tablename__ = "page_refresh_cursor"
     id: Mapped[str] = mapped_column(String(20), primary_key=True)
     sequence: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class EditorJob(Base):
+    __tablename__ = "editor_jobs"
+    __table_args__ = (
+        UniqueConstraint("project_id", "source_key", name="uq_editor_source"),
+        ForeignKeyConstraint(["project_id", "run_id"], ["runs.project_id", "runs.id"]),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    run_id: Mapped[str] = mapped_column(String(36))
+    source_key: Mapped[str] = mapped_column(String(120))
+    state: Mapped[str] = mapped_column(String(20), default="queued")
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output: Mapped[list] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class EditorActivation(Base):
+    __tablename__ = "editor_activation"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

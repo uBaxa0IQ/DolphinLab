@@ -3,6 +3,7 @@ import { useRef, useState, type FormEvent } from "react";
 import Modal from "../../components/Modal";
 import { api } from "../../lib/api";
 import { size } from "../../lib/format";
+import { isDocument } from "../../lib/materials";
 import type { Project } from "../../types";
 
 export default function CreateProject({
@@ -43,7 +44,8 @@ export default function CreateProject({
     const failures: string[] = [];
     for (const file of files) {
       try {
-        project.files.push(await api.upload(project.id, file));
+        if(isDocument(file.name)) await api.uploadDocument(project.id,file);
+        else project.files.push(await api.upload(project.id, file));
       } catch {
         failures.push(file.name);
       }
@@ -51,7 +53,7 @@ export default function CreateProject({
     created(
       project,
       failures.length
-        ? `Проект сохранён. Не удалось загрузить: ${failures.join(", ")}. Повтори загрузку во вкладке «Файлы».`
+        ? `Проект сохранён. Не удалось загрузить: ${failures.join(", ")}. Повтори загрузку в разделе «Материалы».`
         : undefined,
     );
   }
@@ -115,7 +117,7 @@ export default function CreateProject({
           <span>
             Перетащи файлы или <b>выбери на компьютере</b>
           </span>
-          <small>Датасет, task.md, пример результата · до 100 МБ на файл</small>
+          <small>Таблицы и документы. Можно добавить позже.</small>
         </button>
         {files.length > 0 && (
           <ul className="upload-list">

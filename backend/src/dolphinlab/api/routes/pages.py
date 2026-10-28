@@ -5,7 +5,13 @@ import json
 from fastapi import APIRouter, Response
 
 from dolphinlab.application.pages import PageService
-from dolphinlab.domain.pages import PageFeedbackChange, PagePublish, PageSave
+from dolphinlab.domain.pages import (
+    EditorialSave,
+    PageFeedbackChange,
+    PagePublish,
+    PageSave,
+    StartEditor,
+)
 
 router = APIRouter(prefix="/api/projects/{project_id}/pages", tags=["pages"])
 service = PageService()
@@ -17,13 +23,29 @@ def pages(project_id: str):
 
 
 @router.post("")
-def save_page(project_id: str, body: PageSave):
+def save_page(project_id: str, body: PageSave | EditorialSave):
     return service.save(project_id, body)
 
 
 @router.get("/catalog")
 def catalog(project_id: str):
     return service.catalog(project_id)
+
+
+@router.get("/editor")
+def editor_status(project_id: str):
+    from dolphinlab.application.editor import EditorService
+
+    return EditorService().status(project_id)
+
+
+@router.post("/editor")
+def start_editor(project_id: str, body: StartEditor):
+    from dolphinlab.application.editor import EditorService
+
+    return EditorService().queue(
+        project_id, str(body.run_id), str(body.client_id), instruction=body.instruction
+    )
 
 
 @router.get("/{page_id}")
@@ -37,8 +59,15 @@ def publish_page(project_id: str, page_id: str, body: PagePublish):
 
 
 @router.post("/{page_id}/feedback")
-def page_feedback(project_id: str, page_id: str, body: PageFeedbackChange):
-    return service.feedback(project_id, page_id, body)
+def page_feedback(
+    project_id: str,
+    page_id: str,
+    body: PageFeedbackChange,
+    expected_page_revision: int | None = None,
+):
+    return service.feedback(
+        project_id, page_id, body, expected_page_revision=expected_page_revision
+    )
 
 
 @router.get("/{page_id}/publications/{release_id}")
