@@ -12,6 +12,7 @@ from dolphinlab.api.routes import (
     files,
     health,
     messages,
+    pages,
     projects,
     research,
     runs,
@@ -32,7 +33,18 @@ def create_app() -> FastAPI:
         TrustedHostMiddleware,
         allowed_hosts=os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,api").split(","),
     )
-    for module in (health, settings, projects, messages, files, runs, events, research, documents):
+    for module in (
+        health,
+        settings,
+        projects,
+        messages,
+        files,
+        runs,
+        events,
+        research,
+        documents,
+        pages,
+    ):
         application.include_router(module.router)
     return application
 

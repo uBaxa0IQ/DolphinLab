@@ -188,6 +188,7 @@ class Run(Base):
             name="fk_run_iteration_project",
         ),
         UniqueConstraint("project_id", "request_id", name="uq_run_request"),
+        UniqueConstraint("project_id", "id", name="uq_run_project_id"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
@@ -396,3 +397,104 @@ class DocumentChunk(Base):
             persisted=True,
         ),
     )
+
+
+class ProjectPage(Base):
+    __tablename__ = "project_pages"
+    __table_args__ = (
+        UniqueConstraint("project_id", "page_key", name="uq_page_key"),
+        UniqueConstraint("project_id", "id", name="uq_page_project"),
+        ForeignKeyConstraint(["project_id", "run_id"], ["runs.project_id", "runs.id"]),
+        ForeignKeyConstraint(
+            ["project_id", "id", "published_id"],
+            ["page_releases.project_id", "page_releases.page_id", "page_releases.id"],
+            name="fk_page_current_release",
+            use_alter=True,
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    page_key: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    team_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    feedback_revision: Mapped[int] = mapped_column(Integer, default=0)
+    user_state: Mapped[dict] = mapped_column(JSON, default=lambda: {"pins": {}, "comments": {}})
+    published_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PageRevision(Base):
+    __tablename__ = "page_revisions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "page_id"], ["project_pages.project_id", "project_pages.id"]
+        ),
+        UniqueConstraint("page_id", "revision", name="uq_page_revision"),
+        UniqueConstraint("project_id", "page_id", "id", name="uq_page_revision_scope"),
+        UniqueConstraint("project_id", "request_id", name="uq_page_save_request"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    page_id: Mapped[str] = mapped_column(String(36), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    spec: Mapped[dict] = mapped_column(JSON)
+    author: Mapped[dict] = mapped_column(JSON)
+    feedback_revision: Mapped[int] = mapped_column(Integer)
+    request_id: Mapped[str] = mapped_column(String(36))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PageRelease(Base):
+    __tablename__ = "page_releases"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "page_id"], ["project_pages.project_id", "project_pages.id"]
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "page_id", "revision_id"],
+            ["page_revisions.project_id", "page_revisions.page_id", "page_revisions.id"],
+        ),
+        UniqueConstraint("project_id", "page_id", "id", name="uq_page_release_scope"),
+        UniqueConstraint("project_id", "request_id", name="uq_page_publish_request"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    page_id: Mapped[str] = mapped_column(String(36), index=True)
+    revision_id: Mapped[str] = mapped_column(String(36))
+    manifest: Mapped[dict] = mapped_column(JSON)
+    user_state: Mapped[dict] = mapped_column(JSON)
+    author: Mapped[dict] = mapped_column(JSON)
+    request_id: Mapped[str] = mapped_column(String(36))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PageFeedback(Base):
+    __tablename__ = "page_feedback"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "page_id"], ["project_pages.project_id", "project_pages.id"]
+        ),
+        UniqueConstraint("page_id", "revision", name="uq_page_feedback_revision"),
+        UniqueConstraint("project_id", "request_id", name="uq_page_feedback_request"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    page_id: Mapped[str] = mapped_column(String(36), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    change: Mapped[dict] = mapped_column(JSON)
+    user_state: Mapped[dict] = mapped_column(JSON)
+    request_id: Mapped[str] = mapped_column(String(36))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PageRefreshCursor(Base):
+    __tablename__ = "page_refresh_cursor"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=0)

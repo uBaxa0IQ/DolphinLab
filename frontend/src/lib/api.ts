@@ -13,6 +13,14 @@ import type {
 } from "../types";
 import type { ResultIndex, ResultRecord } from "../types/reports";
 import type { DocumentVersion, KnowledgeSource } from "../types/documents";
+import type {
+  DraftRevision,
+  PageCatalog,
+  PageRecord,
+  PageRelease,
+  PageSpec,
+  PageSummary,
+} from "../types/pages";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch("/api" + path, init);
   if (!response.ok) {
@@ -44,6 +52,72 @@ async function createOnce<T>(
   return result;
 }
 export const api = {
+  pages: (id: string) => request<PageSummary[]>(`/projects/${id}/pages`),
+  pageCatalog: (id: string) =>
+    request<PageCatalog>(`/projects/${id}/pages/catalog`),
+  page: (id: string, page: string) =>
+    request<PageRecord>(`/projects/${id}/pages/${page}`),
+  savePage: (
+    id: string,
+    revision: number,
+    page: PageSpec,
+    owner: {
+      kind: "main" | "team";
+      run_id: string | null;
+      team_id: string | null;
+    },
+  ) =>
+    createOnce<DraftRevision & { page_id: string }>(
+      JSON.stringify(["page", id, revision, page, owner]),
+      `/projects/${id}/pages`,
+      { expected_revision: revision, page, ...owner },
+    ),
+  publishPage: (
+    id: string,
+    page: string,
+    revision: number,
+    feedback: number,
+    revisionId: string,
+    outcome: "complete" | "inconclusive",
+  ) =>
+    createOnce<PageRelease>(
+      JSON.stringify([
+        "page-publish",
+        id,
+        page,
+        revision,
+        feedback,
+        revisionId,
+        outcome,
+      ]),
+      `/projects/${id}/pages/${page}/publish`,
+      {
+        expected_revision: revision,
+        expected_feedback_revision: feedback,
+        revision_id: revisionId,
+        outcome,
+      },
+    ),
+  pagePublication: (id: string, page: string, release: string) =>
+    request<PageRelease>(
+      `/projects/${id}/pages/${page}/publications/${release}`,
+    ),
+  pageFeedback: (
+    id: string,
+    page: string,
+    revision: number,
+    change: {
+      action: "pin" | "unpin" | "comment" | "delete_comment";
+      block_id?: string;
+      comment_id?: string;
+      text?: string;
+    },
+  ) =>
+    createOnce<{ revision: number; user_state: unknown }>(
+      JSON.stringify(["page-feedback", id, page, revision, change]),
+      `/projects/${id}/pages/${page}/feedback`,
+      { expected_revision: revision, ...change },
+    ),
   documents: (id: string) =>
     request<DocumentVersion[]>(`/projects/${id}/documents`),
   uploadDocument: async (

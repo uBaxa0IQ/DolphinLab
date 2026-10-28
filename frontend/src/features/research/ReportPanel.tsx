@@ -17,7 +17,7 @@ const statusNames: Record<string, string> = {
   inconclusive: "Недостаточно оснований",
   broken: "Доказательство недоступно",
 };
-class BlockBoundary extends Component<
+export class BlockBoundary extends Component<
   { children: ReactNode },
   { failed: boolean }
 > {
@@ -210,18 +210,20 @@ export default function ReportPanel({ project }: { project: Project }) {
   );
 }
 
-function ResultBlock({
+export function ResultBlock({
   projectId,
   runId,
   id,
   root = false,
   refresh = "",
+  filterText = "",
 }: {
   projectId: string;
   runId: string;
   id: string;
   root?: boolean;
   refresh?: string;
+  filterText?: string;
 }) {
   const [result, setResult] = useState<ResultRecord | null>(null),
     [error, setError] = useState("");
@@ -265,7 +267,7 @@ function ResultBlock({
           истории, но его проверка требует пересмотра.
         </p>
       ) : result.kind === "table" || result.kind === "dataset" ? (
-        <PreparedTable data={p as TableData} />
+        <PreparedTable data={p as TableData} filterText={filterText} />
       ) : result.kind === "metric" ? (
         <div className="report-metric">
           <strong>
@@ -290,6 +292,7 @@ function ResultBlock({
           runId={runId}
           refresh={refresh}
           spec={p as ChartData}
+          filterText={filterText}
         />
       ) : result.kind === "report" ? (
         <>
@@ -306,6 +309,7 @@ function ResultBlock({
                     runId={runId}
                     refresh={refresh}
                     id={block.result_id}
+                    filterText={filterText}
                   />
                 </BlockBoundary>
                 {block.caption && <p className="muted">{block.caption}</p>}
@@ -374,13 +378,31 @@ function Limitations({ items }: { items: string[] }) {
     </aside>
   ) : null;
 }
-function PreparedTable({ data }: { data: TableData }) {
+function PreparedTable({
+  data,
+  filterText = "",
+}: {
+  data: TableData;
+  filterText?: string;
+}) {
   const [offset, setOffset] = useState(0);
+  useEffect(() => setOffset(0), [filterText]);
+  const rows = filterText
+    ? data.rows.filter((row) =>
+        row.some((value) =>
+          String(value ?? "")
+            .toLocaleLowerCase()
+            .includes(filterText.toLocaleLowerCase()),
+        ),
+      )
+    : data.rows;
   return (
     <>
       <p className="muted">
         {data.selection} · Объектов в выборке: {data.sample_size}. Строк в
         подготовленной таблице: {data.rows.length}.
+        {filterText &&
+          ` Локальный фильтр представления: ${rows.length} строк. Исходная выборка не изменена.`}
       </p>
       <div className="report-table-scroll">
         <table>
@@ -395,7 +417,7 @@ function PreparedTable({ data }: { data: TableData }) {
             </tr>
           </thead>
           <tbody>
-            {data.rows.slice(offset, offset + 30).map((r, i) => (
+            {rows.slice(offset, offset + 30).map((r, i) => (
               <tr key={i}>
                 {r.map((v, j) => (
                   <td key={j}>
@@ -413,7 +435,7 @@ function PreparedTable({ data }: { data: TableData }) {
           </tbody>
         </table>
       </div>
-      {data.rows.length > 30 && (
+      {rows.length > 30 && (
         <div className="report-table-pages">
           <button
             disabled={!offset}
@@ -422,10 +444,10 @@ function PreparedTable({ data }: { data: TableData }) {
             Назад
           </button>
           <span>
-            {offset + 1}–{Math.min(offset + 30, data.rows.length)}
+            {offset + 1}–{Math.min(offset + 30, rows.length)}
           </span>
           <button
-            disabled={offset + 30 >= data.rows.length}
+            disabled={offset + 30 >= rows.length}
             onClick={() => setOffset((n) => n + 30)}
           >
             Далее
@@ -440,11 +462,13 @@ function ChartBlock({
   runId,
   spec,
   refresh,
+  filterText = "",
 }: {
   projectId: string;
   runId: string;
   spec: ChartData;
   refresh?: string;
+  filterText?: string;
 }) {
   const [table, setTable] = useState<ResultRecord | null>(null),
     [error, setError] = useState("");
@@ -471,14 +495,33 @@ function ChartBlock({
         Таблица графика не прошла проверку целостности.
       </p>
     );
+  const data = table.payload as TableData;
+  const view = filterText
+    ? {
+        ...data,
+        rows: data.rows.filter((row) =>
+          row.some((value) =>
+            String(value ?? "")
+              .toLocaleLowerCase()
+              .includes(filterText.toLocaleLowerCase()),
+          ),
+        ),
+      }
+    : data;
   return (
     <>
-      <AnalyticalChart spec={spec} table={table.payload as TableData} />
+      {filterText && (
+        <p className="muted">
+          Локальный фильтр представления: {view.rows.length} строк. Исходные
+          расчёты не изменены.
+        </p>
+      )}
+      <AnalyticalChart spec={spec} table={view} />
       <details>
         <summary>
           Данные графика · {statusNames[table.status] || table.status}
         </summary>
-        <PreparedTable data={table.payload as TableData} />
+        <PreparedTable data={data} filterText={filterText} />
       </details>
     </>
   );

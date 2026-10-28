@@ -23,9 +23,13 @@ from dolphinlab.infrastructure.database import (
     GoalRevision,
     InputFile,
     Message,
+    PageFeedback,
+    PageRelease,
+    PageRevision,
     PMAction,
     Project,
     ProjectMemory,
+    ProjectPage,
     ProjectPolicyRecord,
     ResearchEvent,
     ResearchIteration,
@@ -152,6 +156,8 @@ class ProjectService(Service):
                     db.execute(text(f"DELETE FROM {table} WHERE {condition}"), parameters)
             for model in (ResearchReceipt, ResearchMail, ResearchEvent, ResearchObject):
                 db.execute(delete(model).where(model.run_id.in_(run_ids)))
+            for model in (PageFeedback, PageRelease, PageRevision, ProjectPage):
+                db.execute(delete(model).where(model.project_id == project_id))
             for model in (ProjectMemory, ContextManifest, PMAction, ConversationAccount):
                 db.execute(delete(model).where(model.project_id == project_id))
             db.execute(delete(Directive).where(Directive.project_id == project_id))

@@ -37,8 +37,10 @@ import ExperimentRows from "../features/research/ExperimentRows";
 import RunPanel, { statusLabels } from "../features/research/RunPanel";
 import ResearchHistory from "../features/research/ResearchHistory";
 import TeamCard from "../features/research/TeamCard";
-import ReportPanel from "../features/research/ReportPanel";
 import DocumentsPanel from "../features/research/DocumentsPanel";
+import ResearchPages, {
+  ProjectPageOverview,
+} from "../features/research/ResearchPages";
 import TeamStaffing from "../features/research/TeamStaffing";
 import ProjectSettingsPanel from "../features/settings/ProjectSettingsPanel";
 import SettingsPanel from "../features/settings/SettingsPanel";
@@ -53,12 +55,13 @@ import type {
   WorkspaceSettings,
 } from "../types";
 
-type Tab = "overview" | "teams" | "experiments" | "files" | "runs";
+type Tab = "overview" | "teams" | "experiments" | "files" | "runs" | "pages";
 const tabs: { id: Tab; label: string }[] = [
   { id: "overview", label: "Обзор" },
   { id: "teams", label: "Команды" },
   { id: "experiments", label: "Эксперименты" },
   { id: "files", label: "Файлы" },
+  { id: "pages", label: "Страницы" },
   { id: "runs", label: "История" },
 ];
 const clock = () =>
@@ -641,7 +644,11 @@ export default function App() {
                 />
               )}
               {!project.demo && tab === "overview" && (
-                <ReportPanel key={`report:${project.id}`} project={project} />
+                <ProjectPageOverview
+                  key={`report:${project.id}`}
+                  project={project}
+                  onEdit={() => setTab("pages")}
+                />
               )}
               {(tab === "overview" || tab === "teams") && (
                 <>
@@ -967,6 +974,14 @@ export default function App() {
                   )}
                 </section>
               )}
+              {tab === "pages" &&
+                (project.demo ? (
+                  <p className="muted">
+                    Редактор страниц доступен в собственных проектах.
+                  </p>
+                ) : (
+                  <ResearchPages key={project.id} project={project} />
+                ))}
               <footer className="content-footer">
                 <span className="footer-spark">✳</span>{" "}
                 {project.demo

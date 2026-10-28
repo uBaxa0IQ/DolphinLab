@@ -202,6 +202,8 @@ class PlatformRuntime(Runtime):
                         "register_result",
                         "assess_result",
                         "publish_report",
+                        "save_page",
+                        "publish_page",
                     }
                     if atomic:
                         before = copy.deepcopy(self.agents)
@@ -263,6 +265,60 @@ class PlatformRuntime(Runtime):
 
     async def dispatch(self, agent, name, args):
         agent = self.actor(agent)
+        if name in {"list_pages", "read_page", "save_page", "publish_page"}:
+            from dolphinlab.application.pages import PageService
+            from dolphinlab.domain.pages import PagePublish, PageSave
+            from dolphinlab.research.tools import resolve_call
+
+            profile = self.staffing.profile(agent)
+            resolve_call(agent["role"], name, args, profile["revision"], profile["tools"])
+            with self.store.transaction() as db:
+                run = db.get(Run, self.platform_run_id)
+                project_id = run.project_id
+                service = PageService()
+                actor = {"run_id": run.id, "id": agent["id"]}
+                if name == "save_page":
+                    return service.save(
+                        project_id, PageSave.model_validate(args), actor=actor, db=db
+                    )
+                if name == "publish_page":
+                    body = dict(args)
+                    page_id = body.pop("page_id")
+                    return service.publish(
+                        project_id, page_id, PagePublish.model_validate(body), actor=actor, db=db
+                    )
+            if name == "list_pages":
+                return {"pages": service.index(project_id)}
+            page = service.read(project_id, args["page_id"])
+            publication = page["publication"]
+            return {
+                **{
+                    k: page[k]
+                    for k in (
+                        "id",
+                        "kind",
+                        "run_id",
+                        "team_id",
+                        "revision",
+                        "feedback_revision",
+                        "draft",
+                    )
+                },
+                "pins": list(page["user_state"]["pins"]),
+                "comments": [
+                    {**c, "text": c["text"][:500]}
+                    for c in list(page["user_state"]["comments"].values())[-10:]
+                ],
+                "publication": {
+                    "id": publication["id"],
+                    "revision_id": publication["revision_id"],
+                    "needs_review": publication["current_evidence"]["needs_review"],
+                    "notices": publication["current_evidence"]["notices"],
+                }
+                if publication
+                else None,
+                "notice": "Comment preview is bounded; full user-owned history is retained. Comments and pins cannot be edited by agents.",
+            }
         if name in {"search_knowledge", "read_source"}:
             from dolphinlab.application.documents import DocumentService, digest_text
             from dolphinlab.domain.documents import ReadSource, SearchKnowledge

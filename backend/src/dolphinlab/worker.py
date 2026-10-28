@@ -8,6 +8,7 @@ from sqlalchemy import select, text
 from dolphinlab.agents.project_manager import ProjectManager
 from dolphinlab.agents.session import ResearchSession
 from dolphinlab.application.documents import DocumentService
+from dolphinlab.application.pages import PageService
 from dolphinlab.infrastructure.conversation_usage import recover_reservations
 from dolphinlab.infrastructure.database import ConversationAccount, Message, Run, Session, engine
 from dolphinlab.infrastructure.model_clients import ModelClientFactory
@@ -74,8 +75,10 @@ class Worker:
 
     async def ingest(self):
         documents = DocumentService()
+        pages = PageService()
         while not self.stopping:
             await asyncio.to_thread(documents.process_next)
+            await asyncio.to_thread(pages.refresh_sources)
             await asyncio.sleep(1)
 
 

@@ -17,7 +17,7 @@ def profile_digest(profile):
 
 
 def freeze_profiles(legacy=False, revision=None):
-    revision = revision or (1 if legacy else 4)
+    revision = revision or (1 if legacy else 5)
     result = []
     for role in LEGACY_ROLES if revision == 1 else V2_ROLES if revision == 2 else ROLES:
         record = {

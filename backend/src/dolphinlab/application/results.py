@@ -48,8 +48,9 @@ class ResultsService(Service):
                 for c in registry.store.all("candidate")
             ][-30:]
             return {
-                "results": [registry.summary(r) for r in registry.store.all("result_revision")][
-                    -100:
+                "results": [
+                    {**registry.summary(r), "status": registry.status(r)}
+                    for r in registry.store.all("result_revision")[-100:]
                 ]
                 + legacy,
                 "pages": registry.store.all("page_revision")[-50:],

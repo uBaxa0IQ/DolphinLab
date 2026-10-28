@@ -313,7 +313,7 @@ SPECIALISTS = {"ml_engineer", "data_engineer", "data_analyst", "evaluator", "rep
 MANAGERS = {"tech_lead", "team_lead"}
 
 
-def prompt(role, revision=4):
+def prompt(role, revision=5):
     common, roles = (
         (LEGACY_COMMON, LEGACY_ROLES)
         if revision == 1
@@ -326,4 +326,6 @@ def prompt(role, revision=4):
         if revision >= 4
         else ""
     )
+    if revision >= 5:
+        extra += "\nResearch pages: use list_pages/read_page for current drafts and publication history. Team leads/editors compose only their own team page; tech lead/report_editor compose the project main page from exact run/result/hash references. User pins and comments are protected. save_page uses a new client_id UUID and expected_revision; a conflict requires rereading. A page is presentation, not a scientific assessment or Run delivery. publish_page requires independently accepted evidence and exact report criteria, cannot approve a result or finish a Run. Reuse existing checked blocks; publication history remains immutable. New result revisions refresh unpinned draft blocks only. When useful, report_editor owns the main page's assembly and previews; do not create duplicate calculations to change layout."
     return common + "\nYOUR ROLE:\n" + roles[role] + extra

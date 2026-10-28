@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+from dolphinlab.domain.pages import PagePublish, PageSave
 from dolphinlab.domain.staffing import Handover
 
 S = {"type": "string"}
@@ -661,7 +662,42 @@ CATALOG += [
 ]
 
 
-def tools_for(role, revision=4):
+V4_CATALOG = deepcopy(CATALOG)
+
+CATALOG += [
+    spec("list_pages", "List project/team pages and current draft/publication identifiers", {}),
+    spec(
+        "read_page",
+        "Read a bounded draft, pins, user comments and publication state",
+        {"page_id": S},
+        ["page_id"],
+    ),
+]
+for _name, _contract, _description in [
+    (
+        "save_page",
+        PageSave,
+        "Save a versioned draft of your page using exact result references; preserves user pins. New client_id per logical edit, expected_revision detects conflicts.",
+    ),
+    (
+        "publish_page",
+        PagePublish,
+        "Publish an exact saved revision with independently accepted required evidence. Does not approve results or finish the research Run.",
+    ),
+]:
+    _schema = _contract.model_json_schema()
+    if _name == "publish_page":
+        _schema["properties"]["page_id"] = S
+    _schema["required"] = list(_schema["properties"])
+    for _definition in _schema.get("$defs", {}).values():
+        if "properties" in _definition:
+            _definition["required"] = list(_definition["properties"])
+    _tool = spec(_name, _description, {}, roles={"tech_lead", "team_lead", "report_editor"})
+    _tool["schema"]["function"]["parameters"] = _schema
+    CATALOG.append(_tool)
+
+
+def tools_for(role, revision=5):
     catalog = (
         LEGACY_CATALOG
         if revision == 1
@@ -669,6 +705,8 @@ def tools_for(role, revision=4):
         if revision == 2
         else V3_CATALOG
         if revision == 3
+        else V4_CATALOG
+        if revision == 4
         else CATALOG
     )
     return [
@@ -717,7 +755,7 @@ def validate_value(value, schema, path="arguments"):
         raise ValueError(f"{path}: invalid string length")
 
 
-def resolve_call(role, name, arguments, revision=4, schemas=None):
+def resolve_call(role, name, arguments, revision=5, schemas=None):
     catalog = (
         LEGACY_CATALOG
         if revision == 1
@@ -725,6 +763,8 @@ def resolve_call(role, name, arguments, revision=4, schemas=None):
         if revision == 2
         else V3_CATALOG
         if revision == 3
+        else V4_CATALOG
+        if revision == 4
         else CATALOG
     )
     item = next((i for i in catalog if i["schema"]["function"]["name"] == name), None)

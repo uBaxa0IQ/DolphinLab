@@ -405,7 +405,7 @@ class DocumentStorageTest(unittest.TestCase):
             )
 
     def test_profile_v4_adds_tools_without_mutating_v3(self):
-        self.assertEqual(freeze_profiles()[0]["revision"], 4)
+        self.assertEqual(freeze_profiles(revision=4)[0]["revision"], 4)
         old = freeze_profiles(revision=3)[0]
         self.assertNotIn("read_source", [t["function"]["name"] for t in old["tools"]])
         with self.assertRaises(ValueError):
